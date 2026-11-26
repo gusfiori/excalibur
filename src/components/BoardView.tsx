@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import type { Scene } from "@/components/Editor";
+import RenameInput from "@/components/RenameInput";
 import { getBoardScene, saveBoardScene } from "@/lib/db";
 
 // O Excalidraw usa APIs do navegador (window, canvas), então só carrega no cliente.
@@ -32,10 +33,11 @@ function Centered({ children }: { children: React.ReactNode }) {
  * Fila de salvamento de um quadro: espera o usuário parar de desenhar,
  * grava uma vez por vez e tenta de novo se a gravação falhar.
  */
-function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void) {
+function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void, whenReady?: Promise<void>) {
   let pending: Scene | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let chain: Promise<void> = Promise.resolve();
+  // Quadro recém-criado: só grava depois que ele existir no banco.
+  let chain: Promise<void> = whenReady ? whenReady.catch(() => {}) : Promise.resolve();
 
   function flush() {
     clearTimeout(timer);
@@ -68,24 +70,34 @@ function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void) {
 }
 
 /** Um quadro aberto: carrega o desenho do banco e salva sozinho a cada alteração. */
-export default function BoardView({ boardId, boardName }: { boardId: string; boardName: string }) {
+type BoardViewProps = {
+  boardId: string;
+  boardName: string;
+  /** Presente quando o quadro acabou de ser criado e ainda está sendo gravado no banco. */
+  whenReady?: Promise<void>;
+  onRename: (name: string) => void;
+};
+
+export default function BoardView({ boardId, boardName, whenReady, onRename }: BoardViewProps) {
   const [scene, setScene] = useState<Scene | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
+  const [renaming, setRenaming] = useState(false);
 
   // BoardView é recriado a cada troca de quadro (key), então o boardId não muda aqui.
-  const [saver] = useState(() => createAutosaver(boardId, setStatus));
+  const [saver] = useState(() => createAutosaver(boardId, setStatus, whenReady));
 
   // Carrega o desenho
   useEffect(() => {
     let cancelled = false;
-    getBoardScene(boardId)
+    (whenReady ?? Promise.resolve())
+      .then(() => getBoardScene(boardId))
       .then((s) => !cancelled && setScene(s))
       .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
-  }, [boardId]);
+  }, [boardId, whenReady]);
 
   // Ao trocar de quadro (desmontar), salva o que faltava.
   // Ao fechar/recarregar a aba com algo pendente, salva e pede confirmação.
@@ -106,7 +118,26 @@ export default function BoardView({ boardId, boardName }: { boardId: string; boa
   return (
     <>
       <header className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-zinc-200 px-4">
-        <span className="truncate text-sm font-medium text-zinc-800">{boardName}</span>
+        {renaming ? (
+          <RenameInput
+            initial={boardName}
+            onCommit={(name) => {
+              onRename(name);
+              setRenaming(false);
+            }}
+            onCancel={() => setRenaming(false)}
+            className="w-80 max-w-full rounded border border-blue-400 px-1.5 py-0.5 text-sm font-medium text-zinc-900 outline-none ring-2 ring-blue-200"
+          />
+        ) : (
+          <button
+            type="button"
+            title="Clique para renomear"
+            onClick={() => setRenaming(true)}
+            className="truncate rounded px-1.5 py-0.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+          >
+            {boardName}
+          </button>
+        )}
         <span className={`shrink-0 text-xs ${status === "error" ? "text-red-600" : "text-zinc-400"}`}>
           {STATUS_LABEL[status]}
         </span>
