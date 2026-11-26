@@ -87,6 +87,14 @@ export default function BoardView({ boardId, boardName, whenReady, onRename }: B
   // BoardView é recriado a cada troca de quadro (key), então o boardId não muda aqui.
   const [saver] = useState(() => createAutosaver(boardId, setStatus, whenReady));
 
+  // Título da aba do navegador: "Nome do quadro · Excalibur"
+  useEffect(() => {
+    document.title = `${boardName} · Excalibur`;
+    return () => {
+      document.title = "Excalibur";
+    };
+  }, [boardName]);
+
   // Carrega o desenho
   useEffect(() => {
     let cancelled = false;

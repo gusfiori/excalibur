@@ -9,6 +9,9 @@ import type { Board, Folder, UserInfo } from "@/lib/types";
 
 type Tree = { folders: Folder[]; boards: Board[] };
 
+/** Itens novos vão para o fim da lista. */
+const nextPosition = (siblings: { position: number }[]) => Math.floor(Math.max(0, ...siblings.map((s) => s.position))) + 1;
+
 const lastBoardKey = (userId: string) => `myexcalidraw:lastBoard:${userId}`;
 
 function readLastBoard(userId: string): string | null {
@@ -112,7 +115,7 @@ export default function Workspace({ user }: { user: UserInfo }) {
         id: crypto.randomUUID(),
         name: uniqueName("Nova pasta", tree.folders.filter((f) => f.parentId === parentId)),
         parentId,
-        position: 0,
+        position: nextPosition(tree.folders.filter((f) => f.parentId === parentId)),
       };
       setTree((t) => t && { ...t, folders: [...t.folders, folder] });
       persist(() => db.createFolder(folder));
@@ -124,7 +127,7 @@ export default function Workspace({ user }: { user: UserInfo }) {
         id: crypto.randomUUID(),
         name: uniqueName("Sem título", tree.boards.filter((b) => b.folderId === folderId)),
         folderId,
-        position: 0,
+        position: nextPosition(tree.boards.filter((b) => b.folderId === folderId)),
       };
       setTree((t) => t && { ...t, boards: [...t.boards, board] });
       const saved = persist(() => db.createBoard(board));
@@ -144,15 +147,49 @@ export default function Workspace({ user }: { user: UserInfo }) {
       persist(() => db.updateBoard(id, { name }));
     },
 
-    moveFolder(id, parentId) {
-      if (parentId && descendantFolderIds(tree.folders, id).has(parentId)) return; // não cabe dentro de si mesma
-      setTree((t) => t && { ...t, folders: t.folders.map((f) => (f.id === id ? { ...f, parentId } : f)) });
-      persist(() => db.updateFolder(id, { parentId }));
-    },
-
-    moveBoard(id, folderId) {
-      setTree((t) => t && { ...t, boards: t.boards.map((b) => (b.id === id ? { ...b, folderId } : b)) });
-      persist(() => db.updateBoard(id, { folderId }));
+    place(kind, id, parentId, orderedIds) {
+      if (kind === "folder" && parentId && descendantFolderIds(tree.folders, id).has(parentId)) return; // não cabe dentro de si mesma
+      // Posições 1, 2, 3... na nova ordem; só grava no banco o que mudou.
+      const position = new Map(orderedIds.map((x, i) => [x, i + 1]));
+      if (kind === "folder") {
+        const changed = tree.folders.filter(
+          (f) => position.has(f.id) && (f.position !== position.get(f.id) || (f.id === id && f.parentId !== parentId)),
+        );
+        setTree(
+          (t) =>
+            t && {
+              ...t,
+              folders: t.folders.map((f) =>
+                position.has(f.id) ? { ...f, position: position.get(f.id)!, ...(f.id === id ? { parentId } : {}) } : f,
+              ),
+            },
+        );
+        persist(async () => {
+          await Promise.all(
+            changed.map((f) => db.updateFolder(f.id, { position: position.get(f.id)!, ...(f.id === id ? { parentId } : {}) })),
+          );
+        });
+      } else {
+        const changed = tree.boards.filter(
+          (b) => position.has(b.id) && (b.position !== position.get(b.id) || (b.id === id && b.folderId !== parentId)),
+        );
+        setTree(
+          (t) =>
+            t && {
+              ...t,
+              boards: t.boards.map((b) =>
+                position.has(b.id) ? { ...b, position: position.get(b.id)!, ...(b.id === id ? { folderId: parentId } : {}) } : b,
+              ),
+            },
+        );
+        persist(async () => {
+          await Promise.all(
+            changed.map((b) =>
+              db.updateBoard(b.id, { position: position.get(b.id)!, ...(b.id === id ? { folderId: parentId } : {}) }),
+            ),
+          );
+        });
+      }
     },
 
     deleteFolder(id) {
@@ -165,10 +202,31 @@ export default function Workspace({ user }: { user: UserInfo }) {
       persist(() => db.deleteFolder(id));
     },
 
+    duplicateBoard(id) {
+      const source = tree.boards.find((b) => b.id === id);
+      if (!source) return;
+      const copy: Board = {
+        id: crypto.randomUUID(),
+        name: uniqueName(`${source.name} (cópia)`, tree.boards.filter((b) => b.folderId === source.folderId)),
+        folderId: source.folderId,
+        position: source.position + 0.5, // logo abaixo do original
+      };
+      setTree((t) => t && { ...t, boards: [...t.boards, copy] });
+      const saved = persist(() => db.duplicateBoard(id, copy));
+      creating.set(copy.id, saved);
+      saved.finally(() => creating.delete(copy.id)).catch(() => {});
+      selectBoard(copy.id);
+    },
+
     deleteBoard(id) {
+      const deleted = tree.boards.find((b) => b.id === id);
       const remainingBoards = tree.boards.filter((b) => b.id !== id);
       setTree((t) => t && { ...t, boards: t.boards.filter((b) => b.id !== id) });
-      if (activeBoardId === id) selectBoard(remainingBoards[0]?.id ?? null);
+      if (activeBoardId === id) {
+        // Prefere abrir outro quadro da mesma pasta
+        const sibling = remainingBoards.find((b) => b.folderId === deleted?.folderId);
+        selectBoard((sibling ?? remainingBoards[0])?.id ?? null);
+      }
       persist(() => db.deleteBoard(id));
     },
   };

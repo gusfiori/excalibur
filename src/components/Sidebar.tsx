@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ContextMenu, { type MenuItem } from "@/components/ContextMenu";
+import Logo from "@/components/Logo";
 import RenameInput from "@/components/RenameInput";
+import SidebarSearch from "@/components/SidebarSearch";
 import { ancestorFolderIds, byName, descendantFolderIds } from "@/lib/tree";
 import type { Board, Folder, UserInfo } from "@/lib/types";
 
@@ -14,10 +16,14 @@ export type SidebarActions = {
   createBoard: (folderId: string | null) => string;
   renameFolder: (id: string, name: string) => void;
   renameBoard: (id: string, name: string) => void;
-  moveFolder: (id: string, parentId: string | null) => void;
-  moveBoard: (id: string, folderId: string | null) => void;
+  /**
+   * Coloca o item na pasta `parentId` (null = raiz) e define a ordem dos itens
+   * daquele tipo nessa pasta (`orderedIds`, já incluindo o item).
+   */
+  place: (kind: "folder" | "board", id: string, parentId: string | null, orderedIds: string[]) => void;
   deleteFolder: (id: string) => void;
   deleteBoard: (id: string) => void;
+  duplicateBoard: (id: string) => void;
 };
 
 type SidebarProps = {
@@ -31,7 +37,18 @@ type SidebarProps = {
 type ItemRef = { kind: "folder" | "board"; id: string };
 type MenuState = { x: number; y: number; target: ItemRef | null }; // target null = área vazia
 type DragState = ItemRef & { forbidden: Set<string> }; // pastas onde não pode soltar
+/** into = dentro da pasta; before/after = reordenar antes/depois do item. */
+type DropTarget = { key: string; mode: "into" | "before" | "after" };
 const ROOT = "__root__";
+
+/** Ordem manual (arrastando); itens com a mesma posição ficam em ordem alfabética. */
+const byPosition = <T extends { position: number; name: string }>(a: T, b: T) => a.position - b.position || byName(a, b);
+
+const DROP_STYLE: Record<DropTarget["mode"], string> = {
+  into: "bg-blue-100 ring-1 ring-blue-400",
+  before: "shadow-[inset_0_2px_0_0_#3b82f6]",
+  after: "shadow-[inset_0_-2px_0_0_#3b82f6]",
+};
 
 const expandedKey = (userId: string) => `myexcalidraw:expanded:${userId}`;
 
@@ -75,7 +92,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
   const [editing, setEditing] = useState<ItemRef | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dragging, setDragging] = useState<DragState | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
   useEffect(() => {
     try {
@@ -95,6 +112,16 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
     });
 
   const closeMenu = useCallback(() => setMenu(null), []);
+
+  /** Abre a pasta (e as de cima) e rola até ela. Usado pela busca. */
+  const revealFolder = (id: string) => {
+    setExpanded((prev) => new Set([...prev, id, ...ancestorFolderIds(folders, id)]));
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-folder-id="${id}"]`);
+      el?.scrollIntoView({ block: "nearest" });
+      el?.focus();
+    });
+  };
 
   // ---------- Ações ----------
 
@@ -144,7 +171,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
         { label: "Novo quadro aqui", onSelect: () => newBoard(folder.id) },
         { label: "Nova subpasta", onSelect: () => newFolder(folder.id) },
         { label: "Renomear", onSelect: () => setEditing(target) },
-        ...(folder.parentId ? [{ label: "Mover para a raiz", onSelect: () => actions.moveFolder(folder.id, null) }] : []),
+        ...(folder.parentId ? [{ label: "Mover para a raiz", onSelect: () => placeAtEnd("folder", folder.id, null) }] : []),
         { label: "Excluir pasta", danger: true, onSelect: () => confirmDeleteFolder(folder) },
       ];
     }
@@ -152,7 +179,8 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
     if (!board) return [];
     return [
       { label: "Renomear", onSelect: () => setEditing(target) },
-      ...(board.folderId ? [{ label: "Mover para a raiz", onSelect: () => actions.moveBoard(board.id, null) }] : []),
+      { label: "Duplicar", onSelect: () => actions.duplicateBoard(board.id) },
+      ...(board.folderId ? [{ label: "Mover para a raiz", onSelect: () => placeAtEnd("board", board.id, null) }] : []),
       { label: "Excluir quadro", danger: true, onSelect: () => confirmDeleteBoard(board) },
     ];
   };
@@ -171,6 +199,20 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
 
   // ---------- Arrastar e soltar ----------
 
+  const siblingsOf = (kind: ItemRef["kind"], parentId: string | null): (Folder | Board)[] =>
+    kind === "folder"
+      ? folders.filter((f) => f.parentId === parentId).sort(byPosition)
+      : boards.filter((b) => b.folderId === parentId).sort(byPosition);
+
+  /** Move para o fim da lista de `parentId`. */
+  function placeAtEnd(kind: ItemRef["kind"], id: string, parentId: string | null) {
+    const ids = siblingsOf(kind, parentId)
+      .map((x) => x.id)
+      .filter((x) => x !== id);
+    actions.place(kind, id, parentId, [...ids, id]);
+    if (parentId) setOpen(parentId, true);
+  }
+
   const startDrag = (e: React.DragEvent, item: ItemRef) => {
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", item.id);
@@ -185,44 +227,88 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
     setDropTarget(null);
   };
 
-  /** target = id da pasta de destino, ou null para a raiz. */
-  const canDropInto = (target: string | null) => !!dragging && !(target && dragging.forbidden.has(target));
+  /** Pode soltar dentro da pasta `parentId` (null = raiz)? Uma pasta não entra nela mesma. */
+  const canPlaceIn = (parentId: string | null) => !!dragging && !(parentId && dragging.forbidden.has(parentId));
 
-  const dragOver = (e: React.DragEvent, target: string | null) => {
+  /**
+   * Decide o que acontece ao soltar sobre uma linha, pela altura do mouse:
+   * - pasta sobre pasta: borda de cima/baixo reordena, meio coloca dentro
+   * - quadro sobre quadro: metade de cima/baixo reordena
+   * - quadro sobre pasta: coloca dentro; pasta sobre quadro: vai para a pasta do quadro
+   */
+  const computeDrop = (e: React.DragEvent, row: ItemRef): DropTarget | null => {
+    if (!dragging) return null;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientY - rect.top) / rect.height;
+
+    if (row.kind === "folder") {
+      const folder = folders.find((f) => f.id === row.id);
+      if (!folder) return null;
+      if (dragging.kind === "folder" && canPlaceIn(folder.parentId)) {
+        if (ratio < 0.25) return { key: row.id, mode: "before" };
+        if (ratio > 0.75) return { key: row.id, mode: "after" };
+      }
+      return canPlaceIn(row.id) ? { key: row.id, mode: "into" } : null;
+    }
+
+    const board = boards.find((b) => b.id === row.id);
+    if (!board) return null;
+    if (dragging.kind === "board") return { key: row.id, mode: ratio < 0.5 ? "before" : "after" };
+    return canPlaceIn(board.folderId) ? { key: board.folderId ?? ROOT, mode: "into" } : null;
+  };
+
+  const updateDropTarget = (e: React.DragEvent, target: DropTarget | null) => {
     e.stopPropagation();
-    if (!canDropInto(target)) {
-      if (dropTarget !== null) setDropTarget(null);
+    if (!target) {
+      if (dropTarget) setDropTarget(null);
       return;
     }
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    const key = target ?? ROOT;
-    if (dropTarget !== key) setDropTarget(key);
+    if (dropTarget?.key !== target.key || dropTarget.mode !== target.mode) setDropTarget(target);
   };
 
-  const drop = (e: React.DragEvent, target: string | null) => {
+  const dragOverRow = (e: React.DragEvent, row: ItemRef) => updateDropTarget(e, computeDrop(e, row));
+  const dragOverRoot = (e: React.DragEvent) =>
+    updateDropTarget(e, canPlaceIn(null) ? { key: ROOT, mode: "into" } : null);
+
+  const drop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragging && canDropInto(target)) {
-      if (dragging.kind === "folder") {
-        const folder = folders.find((f) => f.id === dragging.id);
-        if (folder && folder.parentId !== target) actions.moveFolder(dragging.id, target);
-      } else {
-        const board = boards.find((b) => b.id === dragging.id);
-        if (board && board.folderId !== target) actions.moveBoard(dragging.id, target);
-      }
-      if (target) setOpen(target, true);
-    }
+    const target = dropTarget;
+    const item = dragging;
     endDrag();
+    if (!target || !item) return;
+
+    if (target.mode === "into") {
+      const parentId = target.key === ROOT ? null : target.key;
+      // Já está nessa pasta: não mexe na ordem
+      if (siblingsOf(item.kind, parentId).some((x) => x.id === item.id)) return;
+      placeAtEnd(item.kind, item.id, parentId);
+      return;
+    }
+
+    // Reordenar antes/depois de um item do mesmo tipo
+    const rowItem: Folder | Board | undefined =
+      item.kind === "folder" ? folders.find((f) => f.id === target.key) : boards.find((b) => b.id === target.key);
+    if (!rowItem || rowItem.id === item.id) return;
+    const parentId = "parentId" in rowItem ? rowItem.parentId : rowItem.folderId;
+    const ids = siblingsOf(item.kind, parentId)
+      .map((x) => x.id)
+      .filter((x) => x !== item.id);
+    const index = ids.indexOf(rowItem.id) + (target.mode === "after" ? 1 : 0);
+    ids.splice(index, 0, item.id);
+    actions.place(item.kind, item.id, parentId, ids);
   };
 
   // ---------- Renderização ----------
 
-  const rowBase = "group flex w-full cursor-pointer select-none items-center gap-1.5 rounded-md py-1 pr-1 text-left text-sm";
+  const rowBase =
+    "group flex w-full cursor-pointer select-none items-center gap-1.5 rounded-md py-1 pr-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-300";
 
   const renderLevel = (parentId: string | null, depth: number): React.ReactNode => {
-    const childFolders = folders.filter((f) => f.parentId === parentId).sort(byName);
-    const childBoards = boards.filter((b) => b.folderId === parentId).sort(byName);
+    const childFolders = folders.filter((f) => f.parentId === parentId).sort(byPosition);
+    const childBoards = boards.filter((b) => b.folderId === parentId).sort(byPosition);
     const indent = { paddingLeft: 6 + depth * 14 };
 
     return (
@@ -230,7 +316,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
         {childFolders.map((folder) => {
           const open = expanded.has(folder.id);
           const isEditing = editing?.kind === "folder" && editing.id === folder.id;
-          const isDropTarget = dropTarget === folder.id;
+          const dropMode = dropTarget?.key === folder.id ? dropTarget.mode : null;
           const ref: ItemRef = { kind: "folder", id: folder.id };
           return (
             <div key={folder.id} role="group">
@@ -238,12 +324,13 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
                 role="treeitem"
                 aria-expanded={open}
                 aria-selected={false}
+                data-folder-id={folder.id}
                 tabIndex={0}
                 draggable={!isEditing}
                 onDragStart={(e) => startDrag(e, ref)}
                 onDragEnd={endDrag}
-                onDragOver={(e) => dragOver(e, folder.id)}
-                onDrop={(e) => drop(e, folder.id)}
+                onDragOver={(e) => dragOverRow(e, ref)}
+                onDrop={drop}
                 onClick={() => setOpen(folder.id, !open)}
                 onDoubleClick={() => setEditing(ref)}
                 onContextMenu={(e) => openMenuAt(e, ref)}
@@ -252,7 +339,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
                   if (e.key === "F2") setEditing(ref);
                 }}
                 className={`${rowBase} text-zinc-700 ${
-                  isDropTarget ? "bg-blue-100 ring-1 ring-blue-400" : "hover:bg-zinc-200/70"
+                  dropMode ? DROP_STYLE[dropMode] : "hover:bg-zinc-200/70"
                 } ${dragging?.id === folder.id ? "opacity-50" : ""}`}
                 style={indent}
               >
@@ -295,6 +382,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
           const isEditing = editing?.kind === "board" && editing.id === board.id;
           const isActive = board.id === activeBoardId;
           const ref: ItemRef = { kind: "board", id: board.id };
+          const dropMode = dropTarget?.key === board.id ? dropTarget.mode : null;
           return (
             <div
               key={board.id}
@@ -304,9 +392,8 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
               draggable={!isEditing}
               onDragStart={(e) => startDrag(e, ref)}
               onDragEnd={endDrag}
-              // Soltar em cima de um quadro = soltar na pasta dele
-              onDragOver={(e) => dragOver(e, board.folderId)}
-              onDrop={(e) => drop(e, board.folderId)}
+              onDragOver={(e) => dragOverRow(e, ref)}
+              onDrop={drop}
               onClick={() => actions.selectBoard(board.id)}
               onDoubleClick={() => setEditing(ref)}
               onContextMenu={(e) => openMenuAt(e, ref)}
@@ -316,7 +403,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
               }}
               className={`${rowBase} ${
                 isActive ? "bg-zinc-200 font-medium text-zinc-900" : "text-zinc-700 hover:bg-zinc-200/70"
-              } ${dragging?.id === board.id ? "opacity-50" : ""}`}
+              } ${dropMode ? DROP_STYLE[dropMode] : ""} ${dragging?.id === board.id ? "opacity-50" : ""}`}
               style={indent}
             >
               <span className="w-3 shrink-0" />
@@ -350,7 +437,10 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
       <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-        <span className="pl-1 text-sm font-semibold text-zinc-900">My Excalidraw</span>
+        <span className="flex items-center gap-2 pl-1 text-sm font-semibold text-zinc-900">
+          <Logo />
+          Excalibur
+        </span>
         <div className="flex gap-1">
           <button
             type="button"
@@ -371,27 +461,29 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
         </div>
       </div>
 
-      <nav
-        role="tree"
-        aria-label="Pastas e quadros"
-        // A área vazia da lista é a "raiz": soltar aqui tira o item de dentro das pastas
-        onDragOver={(e) => dragOver(e, null)}
-        onDrop={(e) => drop(e, null)}
-        onContextMenu={(e) => openMenuAt(e, null)}
-        className={`flex-1 overflow-y-auto px-2 pb-4 transition-colors ${
-          dropTarget === ROOT ? "bg-blue-50 outline-2 -outline-offset-4 outline-dashed outline-blue-300" : ""
-        }`}
-      >
-        {isEmpty ? (
-          <p className="px-2 py-6 text-center text-xs leading-relaxed text-zinc-400">
-            Nada por aqui ainda.
-            <br />
-            Crie uma pasta ou um quadro acima.
-          </p>
-        ) : (
-          renderLevel(null, 0)
-        )}
-      </nav>
+      <SidebarSearch folders={folders} boards={boards} onOpenBoard={actions.selectBoard} onRevealFolder={revealFolder}>
+        <nav
+          role="tree"
+          aria-label="Pastas e quadros"
+          // A área vazia da lista é a "raiz": soltar aqui tira o item de dentro das pastas
+          onDragOver={dragOverRoot}
+          onDrop={drop}
+          onContextMenu={(e) => openMenuAt(e, null)}
+          className={`flex-1 overflow-y-auto px-2 pb-4 transition-colors ${
+            dropTarget?.key === ROOT ? "bg-blue-50 outline-2 -outline-offset-4 outline-dashed outline-blue-300" : ""
+          }`}
+        >
+          {isEmpty ? (
+            <p className="px-2 py-6 text-center text-xs leading-relaxed text-zinc-400">
+              Nada por aqui ainda.
+              <br />
+              Crie uma pasta ou um quadro acima.
+            </p>
+          ) : (
+            renderLevel(null, 0)
+          )}
+        </nav>
+      </SidebarSearch>
 
       <div className="flex items-center gap-2 border-t border-zinc-200 px-3 py-2.5">
         {user.avatarUrl ? (

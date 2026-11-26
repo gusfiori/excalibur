@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "My Excalidraw",
+  title: { default: "Excalibur", template: "%s · Excalibur" },
   description: "Quadros de desenho organizados em pastas",
 };
 

@@ -1,3 +1,4 @@
+import { loadFiles, uploadNewFiles } from "@/lib/files";
 import { createClient } from "@/lib/supabase/client";
 import type { Scene } from "@/components/Editor";
 import type { Board, Folder } from "@/lib/types";
@@ -39,10 +40,14 @@ export async function createFolder(folder: Folder): Promise<void> {
   if (error) throw error;
 }
 
-export async function updateFolder(id: string, patch: { name?: string; parentId?: string | null }): Promise<void> {
+export async function updateFolder(
+  id: string,
+  patch: { name?: string; parentId?: string | null; position?: number },
+): Promise<void> {
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.parentId !== undefined) row.parent_id = patch.parentId;
+  if (patch.position !== undefined) row.position = patch.position;
   const { data, error } = await supabase().from("folders").update(row).eq("id", id).select("id");
   if (error) throw error;
   ensureChanged(data);
@@ -64,10 +69,14 @@ export async function createBoard(board: Board): Promise<void> {
   if (error) throw error;
 }
 
-export async function updateBoard(id: string, patch: { name?: string; folderId?: string | null }): Promise<void> {
+export async function updateBoard(
+  id: string,
+  patch: { name?: string; folderId?: string | null; position?: number },
+): Promise<void> {
   const row: Record<string, unknown> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.folderId !== undefined) row.folder_id = patch.folderId;
+  if (patch.position !== undefined) row.position = patch.position;
   const { data, error } = await supabase().from("boards").update(row).eq("id", id).select("id");
   if (error) throw error;
   ensureChanged(data);
@@ -79,18 +88,37 @@ export async function deleteBoard(id: string): Promise<void> {
   ensureChanged(data);
 }
 
+/** Cria uma cópia do quadro (com o desenho) usando o id/nome informados. */
+export async function duplicateBoard(sourceId: string, copy: Board): Promise<void> {
+  const db = supabase();
+  const { data, error } = await db.from("boards").select("elements, app_state, files").eq("id", sourceId).single();
+  if (error) throw error;
+  const { error: insertError } = await db.from("boards").insert({
+    id: copy.id,
+    name: copy.name,
+    folder_id: copy.folderId,
+    position: copy.position,
+    elements: data.elements,
+    app_state: data.app_state,
+    files: data.files,
+  });
+  if (insertError) throw insertError;
+}
+
 // ---------- Conteúdo do quadro (desenho) ----------
 
 export async function getBoardScene(id: string): Promise<Scene> {
   const { data, error } = await supabase().from("boards").select("elements, app_state, files").eq("id", id).single();
   if (error) throw error;
-  return { elements: data.elements ?? [], appState: data.app_state ?? {}, files: data.files ?? {} };
+  return { elements: data.elements ?? [], appState: data.app_state ?? {}, files: await loadFiles(data.files) };
 }
 
 export async function saveBoardScene(id: string, scene: Scene): Promise<void> {
+  // Imagens vão para o Storage; no banco ficam só os metadados.
+  const files = await uploadNewFiles(scene.files);
   const { error } = await supabase()
     .from("boards")
-    .update({ elements: scene.elements, app_state: scene.appState, files: scene.files })
+    .update({ elements: scene.elements, app_state: scene.appState, files })
     .eq("id", id);
   if (error) throw error;
 }
