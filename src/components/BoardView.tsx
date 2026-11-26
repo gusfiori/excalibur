@@ -5,8 +5,11 @@ import { useEffect, useState } from "react";
 import type { Scene } from "@/components/Editor";
 import ItemIcon from "@/components/ItemIcon";
 import RenameInput from "@/components/RenameInput";
+import TemplateChooser from "@/components/TemplateChooser";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { getBoardScene, saveBoardScene, saveThumbnail } from "@/lib/db";
 import type { ThemeId } from "@/lib/themes";
+import { buildTemplate, TEMPLATES, type TemplateId } from "@/lib/templates";
 import { renderThumbnail } from "@/lib/thumbnail";
 import type { Board } from "@/lib/types";
 
@@ -142,6 +145,10 @@ export default function BoardView({
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [renaming, setRenaming] = useState(false);
+  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
+  // Quadro vazio mostra os modelos (até desenhar algo ou clicar em "Em branco")
+  const [empty, setEmpty] = useState(false);
+  const [templatesDismissed, setTemplatesDismissed] = useState(false);
 
   // BoardView é recriado a cada troca de quadro (key), então o boardId não muda aqui.
   const [thumbnailer] = useState(() => createThumbnailer(boardId, onThumbnail));
@@ -173,6 +180,7 @@ export default function BoardView({
       .then((s) => {
         if (cancelled) return;
         setScene(s);
+        setEmpty(s.elements.length === 0);
         // Atualiza a miniatura ao abrir (quadros antigos ainda não têm)
         thumbnailer.schedule(s, 1500);
       })
@@ -198,6 +206,19 @@ export default function BoardView({
       void thumbnailer.flush();
     };
   }, [saver, thumbnailer]);
+
+  /** Coloca o modelo no quadro, enquadra na tela e dá o nome do modelo a quadros "Sem título". */
+  const applyTemplate = async (id: TemplateId) => {
+    if (!api) return;
+    const [{ CaptureUpdateAction }, elements] = await Promise.all([
+      import("@excalidraw/excalidraw"),
+      buildTemplate(id, theme),
+    ]);
+    api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+    api.scrollToContent(elements, { fitToContent: true, animate: true });
+    setTemplatesDismissed(true);
+    if (/^Sem título( \d+)?$/.test(boardName)) onRename(TEMPLATES.find((t) => t.id === id)!.name);
+  };
 
   return (
     <>
@@ -253,7 +274,20 @@ export default function BoardView({
         {loadError ? (
           <Centered>Não foi possível abrir este quadro. Recarregue a página.</Centered>
         ) : scene ? (
-          <Editor initialScene={scene} theme={theme} onChange={saver.schedule} />
+          <>
+            <Editor
+              initialScene={scene}
+              theme={theme}
+              onApi={setApi}
+              onChange={(next) => {
+                setEmpty(next.elements.length === 0);
+                saver.schedule(next);
+              }}
+            />
+            {empty && !templatesDismissed && api && (
+              <TemplateChooser theme={theme} onPick={applyTemplate} onDismiss={() => setTemplatesDismissed(true)} />
+            )}
+          </>
         ) : (
           <Centered>Abrindo quadro…</Centered>
         )}

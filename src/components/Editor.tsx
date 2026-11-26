@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Excalidraw, getSceneVersion } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI, ExcalidrawProps } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
+import { buildLibrary } from "@/lib/templates";
 import { THEMES, type ThemeId } from "@/lib/themes";
 
 type OnChangeArgs = Parameters<NonNullable<ExcalidrawProps["onChange"]>>;
@@ -20,6 +21,8 @@ type EditorProps = {
   theme: ThemeId;
   /** Chamado só quando o desenho realmente muda (não a cada movimento do mouse). */
   onChange: (scene: Scene) => void;
+  /** Recebe o controle do editor quando ele fica pronto (para inserir modelos etc.). */
+  onApi?: (api: ExcalidrawImperativeAPI) => void;
 };
 
 /** Estilo padrão dos próximos elementos, conforme o tema. */
@@ -36,12 +39,14 @@ function drawingDefaults(theme: ThemeId) {
 
 const GRID = 20; // distância base entre os pontos/linhas do fundo, em pixels
 
-export default function Editor({ initialScene, theme, onChange }: EditorProps) {
+export default function Editor({ initialScene, theme, onChange, onApi }: EditorProps) {
   // "Assinatura" do último estado visto, para ignorar eventos que não mudam nada
   // (seleção, rolagem, zoom...).
   const lastKey = useRef<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
+  // Biblioteca do Excalibur (post-its, balões, ícones...), montada uma vez no estilo do tema
+  const [library] = useState(() => buildLibrary(theme));
 
   /** Faz o fundo pontilhado/quadriculado acompanhar a rolagem e o zoom. */
   const syncBackground = (scrollX: number, scrollY: number, zoom: number) => {
@@ -70,7 +75,10 @@ export default function Editor({ initialScene, theme, onChange }: EditorProps) {
   return (
     <div ref={canvasRef} className="board-canvas absolute inset-0">
       <Excalidraw
-        excalidrawAPI={setApi}
+        excalidrawAPI={(instance) => {
+          setApi(instance);
+          onApi?.(instance);
+        }}
         langCode="pt-BR"
         theme={THEMES[theme].editorMode}
         UIOptions={{ canvasActions: { changeViewBackgroundColor: false, toggleTheme: false } }}
@@ -79,6 +87,7 @@ export default function Editor({ initialScene, theme, onChange }: EditorProps) {
           files: initialScene?.files,
           appState: drawingDefaults(theme),
           scrollToContent: Boolean(initialScene?.elements.length),
+          libraryItems: library,
         }}
         onScrollChange={(scrollX, scrollY, zoom) => syncBackground(scrollX, scrollY, zoom.value)}
         onChange={(elements, appState, files) => {
