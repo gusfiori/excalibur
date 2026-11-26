@@ -8,9 +8,14 @@ import RenameInput from "@/components/RenameInput";
 import SidebarSearch from "@/components/SidebarSearch";
 import { ancestorFolderIds, byName, descendantFolderIds } from "@/lib/tree";
 import type { Board, Folder, ItemAppearance, UserInfo } from "@/lib/types";
+import type { View } from "@/components/Workspace";
 
 export type SidebarActions = {
   selectBoard: (id: string) => void;
+  openHome: () => void;
+  /** Abre a pasta na área principal (galeria). */
+  openFolder: (id: string) => void;
+  toggleFavorite: (id: string) => void;
   /** Cria e devolve o id da nova pasta. */
   createFolder: (parentId: string | null) => string;
   /** Cria, abre e devolve o id do novo quadro. */
@@ -32,7 +37,8 @@ export type SidebarActions = {
 type SidebarProps = {
   folders: Folder[];
   boards: Board[];
-  activeBoardId: string | null;
+  /** O que está aberto na área principal (para destacar na lista). */
+  view: View;
   user: UserInfo;
   actions: SidebarActions;
   onOpenAppearance: () => void;
@@ -117,14 +123,14 @@ function IconButton({
 export default function Sidebar({
   folders,
   boards,
-  activeBoardId,
+  view,
   user,
   actions,
   onOpenAppearance,
   onEditIcon,
 }: SidebarProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const active = boards.find((b) => b.id === activeBoardId);
+    const active = view.kind === "board" ? boards.find((b) => b.id === view.id) : undefined;
     return new Set([...readExpanded(user.id), ...ancestorFolderIds(folders, active?.folderId ?? null)]);
   });
   const [editing, setEditing] = useState<ItemRef | null>(null);
@@ -150,6 +156,8 @@ export default function Sidebar({
     });
 
   const closeMenu = useCallback(() => setMenu(null), []);
+  const activeBoardId = view.kind === "board" ? view.id : null;
+  const activeFolderId = view.kind === "folder" ? view.id : null;
   // Onde o menu está aberto (para o seletor de ícone aparecer no mesmo lugar)
   const menuPos = { x: menu?.x ?? 0, y: menu?.y ?? 0 };
 
@@ -240,6 +248,10 @@ export default function Sidebar({
     return [
       { label: "Renomear", onSelect: () => setEditing(target) },
       { label: "Ícone e cor…", onSelect: () => onEditIcon("board", board.id, menuPos.x, menuPos.y) },
+      {
+        label: board.favorite ? "Remover dos favoritos" : "Adicionar aos favoritos",
+        onSelect: () => actions.toggleFavorite(board.id),
+      },
       { label: "Duplicar", onSelect: () => actions.duplicateBoard(board.id) },
       ...(board.folderId ? [{ label: "Mover para a raiz", onSelect: () => placeAtEnd("board", board.id, null) }] : []),
       { label: "Excluir quadro", danger: true, onSelect: () => confirmDeleteBoard(board) },
@@ -392,19 +404,40 @@ export default function Sidebar({
                 onDragEnd={endDrag}
                 onDragOver={(e) => dragOverRow(e, ref)}
                 onDrop={drop}
-                onClick={() => setOpen(folder.id, !open)}
+                onClick={() => {
+                  actions.openFolder(folder.id);
+                  setOpen(folder.id, true);
+                }}
                 onDoubleClick={() => setEditing(ref)}
                 onContextMenu={(e) => openMenuAt(e, ref)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") setOpen(folder.id, !open);
+                  if (e.key === "Enter") actions.openFolder(folder.id);
+                  if (e.key === "ArrowRight") setOpen(folder.id, true);
+                  if (e.key === "ArrowLeft") setOpen(folder.id, false);
                   if (e.key === "F2") setEditing(ref);
                 }}
-                className={`${rowBase} text-ink-soft ${
-                  dropMode ? DROP_STYLE[dropMode] : "hover:bg-hover"
+                className={`${rowBase} ${
+                  dropMode
+                    ? DROP_STYLE[dropMode]
+                    : activeFolderId === folder.id
+                      ? "bg-selected font-medium text-ink"
+                      : "text-ink-soft hover:bg-hover"
                 } ${dragging?.id === folder.id ? "opacity-50" : ""}`}
                 style={indent}
               >
-                <span className="w-3 shrink-0 text-[10px] text-ink-faint">{open ? "▼" : "▶"}</span>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={open ? "Recolher pasta" : "Expandir pasta"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(folder.id, !open);
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="flex h-4 w-3 shrink-0 items-center justify-center rounded text-[10px] text-ink-faint hover:bg-selected hover:text-ink"
+                >
+                  {open ? "▼" : "▶"}
+                </button>
                 <IconButton
                   label={`Ícone e cor de ${folder.name}`}
                   onClick={(e) => openIconPicker(e, "folder", folder.id)}
@@ -501,6 +534,7 @@ export default function Sidebar({
   };
 
   const isEmpty = folders.length === 0 && boards.length === 0;
+  const favorites = boards.filter((b) => b.favorite).sort(byName);
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-sidebar">
@@ -541,6 +575,43 @@ export default function Sidebar({
             dropTarget?.key === ROOT ? "bg-accent-soft outline-2 -outline-offset-4 outline-dashed outline-accent" : ""
           }`}
         >
+          {/* Início */}
+          <button
+            type="button"
+            onClick={actions.openHome}
+            className={`${rowBase} mb-1 pl-1.5 ${view.kind === "home" ? "bg-selected font-medium text-ink" : "text-ink-soft hover:bg-hover"}`}
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" />
+              </svg>
+            </span>
+            <span className="flex-1 truncate">Início</span>
+          </button>
+
+          {/* Favoritos */}
+          {favorites.length > 0 && (
+            <div className="mb-2">
+              <div className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Favoritos</div>
+              {favorites.map((board) => (
+                <button
+                  key={board.id}
+                  type="button"
+                  onClick={() => actions.selectBoard(board.id)}
+                  onContextMenu={(e) => openMenuAt(e, { kind: "board", id: board.id })}
+                  className={`${rowBase} pl-1.5 ${
+                    board.id === activeBoardId ? "bg-selected font-medium text-ink" : "text-ink-soft hover:bg-hover"
+                  }`}
+                >
+                  <ItemIcon kind="board" icon={board.icon} color={board.color} />
+                  <span className="min-w-0 flex-1 truncate">{board.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Pastas e quadros</div>
+
           {isEmpty ? (
             <p className="px-2 py-6 text-center text-xs leading-relaxed text-ink-faint">
               Nada por aqui ainda.

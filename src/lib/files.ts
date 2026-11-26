@@ -23,7 +23,7 @@ async function currentUserId(): Promise<string> {
   return id;
 }
 
-function blobToDataURL(blob: Blob): Promise<string> {
+export function blobToDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

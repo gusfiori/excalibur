@@ -34,4 +34,9 @@ export type Board = {
   /** Emoji escolhido (null = ícone padrão de quadro) */
   icon: string | null;
   color: ColorKey | null;
+  /** Última edição do desenho ou do nome (ISO) */
+  updatedAt: string;
+  favorite: boolean;
+  /** Última vez que foi aberto (ISO), para "Recentes" */
+  openedAt: string | null;
 };

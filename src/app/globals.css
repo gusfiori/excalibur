@@ -113,6 +113,11 @@ body {
   background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
 
+/* Miniaturas no tema escuro: inverte como o editor faz, para o traço preto aparecer */
+[data-theme="estudio"] .thumb {
+  filter: invert(93%) hue-rotate(180deg);
+}
+
 /* ---------- Editor (Excalidraw) com as cores de cada tema ---------- */
 [data-theme="caderno"] .excalidraw {
   --color-primary: #c2562f;

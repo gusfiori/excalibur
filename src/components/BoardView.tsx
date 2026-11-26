@@ -5,9 +5,10 @@ import { useEffect, useState } from "react";
 import type { Scene } from "@/components/Editor";
 import ItemIcon from "@/components/ItemIcon";
 import RenameInput from "@/components/RenameInput";
-import type { ColorKey } from "@/lib/appearance";
+import { getBoardScene, saveBoardScene, saveThumbnail } from "@/lib/db";
 import type { ThemeId } from "@/lib/themes";
-import { getBoardScene, saveBoardScene } from "@/lib/db";
+import { renderThumbnail } from "@/lib/thumbnail";
+import type { Board } from "@/lib/types";
 
 // O Excalidraw usa APIs do navegador (window, canvas), então só carrega no cliente.
 const Editor = dynamic(() => import("@/components/Editor"), {
@@ -17,6 +18,7 @@ const Editor = dynamic(() => import("@/components/Editor"), {
 
 const SAVE_DELAY_MS = 1000;
 const RETRY_DELAY_MS = 3000;
+const THUMBNAIL_DELAY_MS = 3000; // a miniatura espera mais: não precisa ser a cada traço
 
 type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
@@ -36,7 +38,12 @@ function Centered({ children }: { children: React.ReactNode }) {
  * Fila de salvamento de um quadro: espera o usuário parar de desenhar,
  * grava uma vez por vez e tenta de novo se a gravação falhar.
  */
-function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void, whenReady?: Promise<void>) {
+function createAutosaver(
+  boardId: string,
+  onStatus: (s: SaveStatus) => void,
+  onSaved: (scene: Scene) => void,
+  whenReady?: Promise<void>,
+) {
   let pending: Scene | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Quadro recém-criado: só grava depois que ele existir no banco.
@@ -52,6 +59,7 @@ function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void, whe
       .then(() => saveBoardScene(boardId, toSave))
       .then(() => {
         if (!pending) onStatus("saved");
+        onSaved(toSave);
       })
       .catch(() => {
         // Não perde a alteração: se nada mais novo chegou, tenta de novo daqui a pouco.
@@ -72,14 +80,47 @@ function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void, whe
   return { schedule, flush, hasPending: () => pending !== null };
 }
 
+/**
+ * Gera e grava a miniatura do quadro para a galeria, sem pressa: espera alguns
+ * segundos depois da última alteração salva.
+ */
+function createThumbnailer(boardId: string, onThumbnail: (thumb: string | null) => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let next: Scene | null = null;
+
+  async function run() {
+    clearTimeout(timer);
+    const scene = next;
+    next = null;
+    if (!scene) return;
+    try {
+      const thumb = await renderThumbnail(scene);
+      await saveThumbnail(boardId, thumb);
+      onThumbnail(thumb);
+    } catch (e) {
+      console.warn("Não foi possível gerar a miniatura", e);
+    }
+  }
+
+  function schedule(scene: Scene, delay = THUMBNAIL_DELAY_MS) {
+    next = scene;
+    clearTimeout(timer);
+    timer = setTimeout(run, delay);
+  }
+
+  return { schedule, flush: run };
+}
+
 /** Um quadro aberto: carrega o desenho do banco e salva sozinho a cada alteração. */
 type BoardViewProps = {
-  boardId: string;
-  boardName: string;
-  boardIcon: string | null;
-  boardColor: ColorKey | null;
+  board: Board;
   /** Abre o seletor de ícone e cor perto de (x, y). */
   onEditIcon: (x: number, y: number) => void;
+  onToggleFavorite: () => void;
+  /** O desenho foi gravado no banco (para "editado agora"). */
+  onSaved: () => void;
+  /** Miniatura nova para a galeria. */
+  onThumbnail: (thumb: string | null) => void;
   theme: ThemeId;
   /** Presente quando o quadro acabou de ser criado e ainda está sendo gravado no banco. */
   whenReady?: Promise<void>;
@@ -87,22 +128,34 @@ type BoardViewProps = {
 };
 
 export default function BoardView({
-  boardId,
-  boardName,
-  boardIcon,
-  boardColor,
+  board,
   onEditIcon,
+  onToggleFavorite,
+  onSaved,
+  onThumbnail,
   theme,
   whenReady,
   onRename,
 }: BoardViewProps) {
+  const { id: boardId, name: boardName, icon: boardIcon, color: boardColor } = board;
   const [scene, setScene] = useState<Scene | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [renaming, setRenaming] = useState(false);
 
   // BoardView é recriado a cada troca de quadro (key), então o boardId não muda aqui.
-  const [saver] = useState(() => createAutosaver(boardId, setStatus, whenReady));
+  const [thumbnailer] = useState(() => createThumbnailer(boardId, onThumbnail));
+  const [saver] = useState(() =>
+    createAutosaver(
+      boardId,
+      setStatus,
+      (saved) => {
+        onSaved();
+        thumbnailer.schedule(saved);
+      },
+      whenReady,
+    ),
+  );
 
   // Título da aba do navegador: "Nome do quadro · Excalibur"
   useEffect(() => {
@@ -117,12 +170,17 @@ export default function BoardView({
     let cancelled = false;
     (whenReady ?? Promise.resolve())
       .then(() => getBoardScene(boardId))
-      .then((s) => !cancelled && setScene(s))
+      .then((s) => {
+        if (cancelled) return;
+        setScene(s);
+        // Atualiza a miniatura ao abrir (quadros antigos ainda não têm)
+        thumbnailer.schedule(s, 1500);
+      })
       .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
-  }, [boardId, whenReady]);
+  }, [boardId, whenReady, thumbnailer]);
 
   // Ao trocar de quadro (desmontar), salva o que faltava.
   // Ao fechar/recarregar a aba com algo pendente, salva e pede confirmação.
@@ -137,8 +195,9 @@ export default function BoardView({
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
       saver.flush();
+      void thumbnailer.flush();
     };
-  }, [saver]);
+  }, [saver, thumbnailer]);
 
   return (
     <>
@@ -177,9 +236,18 @@ export default function BoardView({
             </button>
           )}
         </div>
-        <span className={`shrink-0 text-xs ${status === "error" ? "text-red-600" : "text-ink-faint"}`}>
-          {STATUS_LABEL[status]}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className={`text-xs ${status === "error" ? "text-red-600" : "text-ink-faint"}`}>{STATUS_LABEL[status]}</span>
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            aria-pressed={board.favorite}
+            title={board.favorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+            className={`rounded p-1 text-base leading-none hover:bg-hover ${board.favorite ? "text-amber-500" : "text-ink-faint"}`}
+          >
+            {board.favorite ? "★" : "☆"}
+          </button>
+        </div>
       </header>
       <div className="relative min-h-0 flex-1">
         {loadError ? (

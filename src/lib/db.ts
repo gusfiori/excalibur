@@ -10,7 +10,15 @@ const supabase = () => createClient();
 
 type AppearanceRow = { icon?: string | null; color?: string | null };
 type FolderRow = { id: string; name: string; parent_id: string | null; position: number } & AppearanceRow;
-type BoardRow = { id: string; name: string; folder_id: string | null; position: number } & AppearanceRow;
+type BoardRow = {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  position: number;
+  updated_at: string;
+  favorite?: boolean;
+  opened_at?: string | null;
+} & AppearanceRow;
 
 const toAppearance = (r: AppearanceRow): ItemAppearance => ({
   icon: r.icon ?? null,
@@ -29,6 +37,9 @@ const toBoard = (r: BoardRow): Board => ({
   folderId: r.folder_id,
   position: r.position,
   ...toAppearance(r),
+  updatedAt: r.updated_at,
+  favorite: r.favorite ?? false,
+  openedAt: r.opened_at ?? null,
 });
 
 /** Coluna que ainda não existe no banco (script SQL novo não rodado). */
@@ -43,14 +54,22 @@ function ensureChanged(data: unknown[] | null) {
 
 export async function listTree(): Promise<{ folders: Folder[]; boards: Board[] }> {
   const db = supabase();
-  const query = (extra: string) =>
+  const query = (folderExtra: string, boardExtra: string) =>
     Promise.all([
-      db.from("folders").select(`id, name, parent_id, position${extra}`).order("position").order("created_at"),
-      db.from("boards").select(`id, name, folder_id, position${extra}`).order("position").order("created_at"),
+      db.from("folders").select(`id, name, parent_id, position${folderExtra}`).order("position").order("created_at"),
+      db
+        .from("boards")
+        .select(`id, name, folder_id, position, updated_at${boardExtra}`)
+        .order("position")
+        .order("created_at"),
     ]);
-  let [folders, boards] = await query(", icon, color");
-  // Sem as colunas de ícone/cor ainda: carrega sem elas para o app continuar funcionando
-  if (isMissingColumn(folders.error) || isMissingColumn(boards.error)) [folders, boards] = await query("");
+  // Tenta com as colunas mais novas; se algum script SQL ainda não foi rodado,
+  // carrega sem elas para o app continuar funcionando.
+  let [folders, boards] = await query(", icon, color", ", icon, color, favorite, opened_at");
+  if (isMissingColumn(folders.error) || isMissingColumn(boards.error)) {
+    [folders, boards] = await query(", icon, color", ", icon, color");
+  }
+  if (isMissingColumn(folders.error) || isMissingColumn(boards.error)) [folders, boards] = await query("", "");
   if (folders.error) throw folders.error;
   if (boards.error) throw boards.error;
   return {
@@ -138,6 +157,34 @@ export async function duplicateBoard(sourceId: string, copy: Board): Promise<voi
     ...(copy.color ? { color: copy.color } : {}),
   });
   if (insertError) throw insertError;
+}
+
+/** Favorita/desfavorita e marca quando o quadro foi aberto (não contam como edição). */
+export async function updateBoardMeta(id: string, patch: { favorite?: boolean; openedAt?: string }): Promise<void> {
+  const row: Record<string, unknown> = {};
+  if (patch.favorite !== undefined) row.favorite = patch.favorite;
+  if (patch.openedAt !== undefined) row.opened_at = patch.openedAt;
+  const { error } = await supabase().from("boards").update(row).eq("id", id);
+  if (error) throw error;
+}
+
+// ---------- Miniaturas ----------
+
+/** Miniaturas (data URL) dos quadros pedidos; null = quadro vazio ou ainda sem miniatura. */
+export async function getThumbnails(ids: string[]): Promise<Record<string, string | null>> {
+  if (ids.length === 0) return {};
+  const { data, error } = await supabase().from("boards").select("id, thumbnail").in("id", ids);
+  if (error) {
+    if (isMissingColumn(error)) return Object.fromEntries(ids.map((id) => [id, null]));
+    throw error;
+  }
+  const rows = data as unknown as { id: string; thumbnail: string | null }[];
+  return Object.fromEntries(rows.map((r) => [r.id, r.thumbnail]));
+}
+
+export async function saveThumbnail(id: string, thumbnail: string | null): Promise<void> {
+  const { error } = await supabase().from("boards").update({ thumbnail }).eq("id", id);
+  if (error && !isMissingColumn(error)) throw error;
 }
 
 // ---------- Conteúdo do quadro (desenho) ----------
