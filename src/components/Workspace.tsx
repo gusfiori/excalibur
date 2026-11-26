@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import AppearancePicker from "@/components/AppearancePicker";
 import BoardView from "@/components/BoardView";
 import Sidebar, { type SidebarActions } from "@/components/Sidebar";
 import { ThemeDialog } from "@/components/ThemePicker";
@@ -42,6 +43,11 @@ export default function Workspace({ user }: { user: UserInfo }) {
   // Tema: o salvo na conta, ou o padrão (Caderno) enquanto a pessoa escolhe no primeiro acesso
   const [theme, setTheme] = useState<ThemeId>(user.theme ?? DEFAULT_THEME);
   const [savedTheme, setSavedTheme] = useState<ThemeId | null>(user.theme);
+  // Seletor de ícone e cor aberto (para qual item e onde)
+  const [iconPicker, setIconPicker] = useState<{ kind: "folder" | "board"; id: string; x: number; y: number } | null>(
+    null,
+  );
+  const closeIconPicker = useCallback(() => setIconPicker(null), []);
   const [themeDialog, setThemeDialog] = useState<"first" | "appearance" | null>(user.theme ? null : "first");
   // Quadros recém-criados: o editor espera a gravação no banco terminar antes de carregar/salvar.
   const [creating] = useState(() => new Map<string, Promise<void>>());
@@ -143,6 +149,8 @@ export default function Workspace({ user }: { user: UserInfo }) {
         name: uniqueName("Nova pasta", tree.folders.filter((f) => f.parentId === parentId)),
         parentId,
         position: nextPosition(tree.folders.filter((f) => f.parentId === parentId)),
+        icon: null,
+        color: null,
       };
       setTree((t) => t && { ...t, folders: [...t.folders, folder] });
       persist(() => db.createFolder(folder));
@@ -155,6 +163,8 @@ export default function Workspace({ user }: { user: UserInfo }) {
         name: uniqueName("Sem título", tree.boards.filter((b) => b.folderId === folderId)),
         folderId,
         position: nextPosition(tree.boards.filter((b) => b.folderId === folderId)),
+        icon: null,
+        color: null,
       };
       setTree((t) => t && { ...t, boards: [...t.boards, board] });
       const saved = persist(() => db.createBoard(board));
@@ -237,12 +247,24 @@ export default function Workspace({ user }: { user: UserInfo }) {
         name: uniqueName(`${source.name} (cópia)`, tree.boards.filter((b) => b.folderId === source.folderId)),
         folderId: source.folderId,
         position: source.position + 0.5, // logo abaixo do original
+        icon: source.icon,
+        color: source.color,
       };
       setTree((t) => t && { ...t, boards: [...t.boards, copy] });
       const saved = persist(() => db.duplicateBoard(id, copy));
       creating.set(copy.id, saved);
       saved.finally(() => creating.delete(copy.id)).catch(() => {});
       selectBoard(copy.id);
+    },
+
+    setAppearance(kind, id, patch) {
+      if (kind === "folder") {
+        setTree((t) => t && { ...t, folders: t.folders.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
+        persist(() => db.updateFolder(id, patch));
+      } else {
+        setTree((t) => t && { ...t, boards: t.boards.map((b) => (b.id === id ? { ...b, ...patch } : b)) });
+        persist(() => db.updateBoard(id, patch));
+      }
     },
 
     deleteBoard(id) {
@@ -269,6 +291,7 @@ export default function Workspace({ user }: { user: UserInfo }) {
         user={user}
         actions={actions}
         onOpenAppearance={() => setThemeDialog("appearance")}
+        onEditIcon={(kind, id, x, y) => setIconPicker({ kind, id, x, y })}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         {activeBoard ? (
@@ -277,6 +300,9 @@ export default function Workspace({ user }: { user: UserInfo }) {
             key={activeBoard.id}
             boardId={activeBoard.id}
             boardName={activeBoard.name}
+            boardIcon={activeBoard.icon}
+            boardColor={activeBoard.color}
+            onEditIcon={(x, y) => setIconPicker({ kind: "board", id: activeBoard.id, x, y })}
             theme={theme}
             whenReady={creating.get(activeBoard.id)}
             onRename={(name) => actions.renameBoard(activeBoard.id, name)}
@@ -294,6 +320,25 @@ export default function Workspace({ user }: { user: UserInfo }) {
           </div>
         )}
       </main>
+
+      {iconPicker &&
+        (() => {
+          const item =
+            iconPicker.kind === "folder"
+              ? tree.folders.find((f) => f.id === iconPicker.id)
+              : tree.boards.find((b) => b.id === iconPicker.id);
+          if (!item) return null;
+          return (
+            <AppearancePicker
+              x={iconPicker.x}
+              y={iconPicker.y}
+              kind={iconPicker.kind}
+              value={{ icon: item.icon, color: item.color }}
+              onChange={(patch) => actions.setAppearance(iconPicker.kind, iconPicker.id, patch)}
+              onClose={closeIconPicker}
+            />
+          );
+        })()}
 
       {themeDialog && (
         <ThemeDialog

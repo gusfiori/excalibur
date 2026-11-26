@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ContextMenu, { type MenuItem } from "@/components/ContextMenu";
+import ItemIcon from "@/components/ItemIcon";
 import Logo from "@/components/Logo";
 import RenameInput from "@/components/RenameInput";
 import SidebarSearch from "@/components/SidebarSearch";
 import { ancestorFolderIds, byName, descendantFolderIds } from "@/lib/tree";
-import type { Board, Folder, UserInfo } from "@/lib/types";
+import type { Board, Folder, ItemAppearance, UserInfo } from "@/lib/types";
 
 export type SidebarActions = {
   selectBoard: (id: string) => void;
@@ -24,6 +25,8 @@ export type SidebarActions = {
   deleteFolder: (id: string) => void;
   deleteBoard: (id: string) => void;
   duplicateBoard: (id: string) => void;
+  /** Muda o ícone e/ou a cor (o que vier em `patch`). */
+  setAppearance: (kind: "folder" | "board", id: string, patch: Partial<ItemAppearance>) => void;
 };
 
 type SidebarProps = {
@@ -33,6 +36,8 @@ type SidebarProps = {
   user: UserInfo;
   actions: SidebarActions;
   onOpenAppearance: () => void;
+  /** Abre o seletor de ícone e cor perto de (x, y). */
+  onEditIcon: (kind: "folder" | "board", id: string, x: number, y: number) => void;
 };
 
 type ItemRef = { kind: "folder" | "board"; id: string };
@@ -85,7 +90,39 @@ function RowButton({
   );
 }
 
-export default function Sidebar({ folders, boards, activeBoardId, user, actions, onOpenAppearance }: SidebarProps) {
+/** O ícone da linha: clicar abre o seletor de ícone e cor (sem abrir/selecionar a linha). */
+function IconButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title="Mudar ícone e cor"
+      aria-label={label}
+      onClick={onClick}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className="shrink-0 rounded hover:bg-selected"
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function Sidebar({
+  folders,
+  boards,
+  activeBoardId,
+  user,
+  actions,
+  onOpenAppearance,
+  onEditIcon,
+}: SidebarProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const active = boards.find((b) => b.id === activeBoardId);
     return new Set([...readExpanded(user.id), ...ancestorFolderIds(folders, active?.folderId ?? null)]);
@@ -113,6 +150,14 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions,
     });
 
   const closeMenu = useCallback(() => setMenu(null), []);
+  // Onde o menu está aberto (para o seletor de ícone aparecer no mesmo lugar)
+  const menuPos = { x: menu?.x ?? 0, y: menu?.y ?? 0 };
+
+  const openIconPicker = (e: React.MouseEvent, kind: "folder" | "board", id: string) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    onEditIcon(kind, id, rect.left, rect.bottom + 4);
+  };
 
   /** Abre a pasta (e as de cima) e rola até ela. Usado pela busca. */
   const revealFolder = (id: string) => {
@@ -185,6 +230,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions,
         { label: "Novo quadro aqui", onSelect: () => newBoard(folder.id) },
         { label: "Nova subpasta", onSelect: () => newFolder(folder.id) },
         { label: "Renomear", onSelect: () => setEditing(target) },
+        { label: "Ícone e cor…", onSelect: () => onEditIcon("folder", folder.id, menuPos.x, menuPos.y) },
         ...(folder.parentId ? [{ label: "Mover para a raiz", onSelect: () => placeAtEnd("folder", folder.id, null) }] : []),
         { label: "Excluir pasta", danger: true, onSelect: () => confirmDeleteFolder(folder) },
       ];
@@ -193,6 +239,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions,
     if (!board) return [];
     return [
       { label: "Renomear", onSelect: () => setEditing(target) },
+      { label: "Ícone e cor…", onSelect: () => onEditIcon("board", board.id, menuPos.x, menuPos.y) },
       { label: "Duplicar", onSelect: () => actions.duplicateBoard(board.id) },
       ...(board.folderId ? [{ label: "Mover para a raiz", onSelect: () => placeAtEnd("board", board.id, null) }] : []),
       { label: "Excluir quadro", danger: true, onSelect: () => confirmDeleteBoard(board) },
@@ -358,7 +405,12 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions,
                 style={indent}
               >
                 <span className="w-3 shrink-0 text-[10px] text-ink-faint">{open ? "▼" : "▶"}</span>
-                <span className="shrink-0">{open ? "📂" : "📁"}</span>
+                <IconButton
+                  label={`Ícone e cor de ${folder.name}`}
+                  onClick={(e) => openIconPicker(e, "folder", folder.id)}
+                >
+                  <ItemIcon kind="folder" open={open} icon={folder.icon} color={folder.color} />
+                </IconButton>
                 {isEditing ? (
                   <RenameInput
                     initial={folder.name}
@@ -421,7 +473,9 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions,
               style={indent}
             >
               <span className="w-3 shrink-0" />
-              <span className="shrink-0">✏️</span>
+              <IconButton label={`Ícone e cor de ${board.name}`} onClick={(e) => openIconPicker(e, "board", board.id)}>
+                <ItemIcon kind="board" icon={board.icon} color={board.color} />
+              </IconButton>
               {isEditing ? (
                 <RenameInput
                   initial={board.name}

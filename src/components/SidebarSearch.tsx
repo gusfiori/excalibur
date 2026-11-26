@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import ItemIcon from "@/components/ItemIcon";
+import type { ColorKey } from "@/lib/appearance";
 import { ancestorFolderIds, byName } from "@/lib/tree";
 import type { Board, Folder } from "@/lib/types";
 
-type Result = { kind: "folder" | "board"; id: string; name: string; path: string; matchAt: number };
+type Result = {
+  kind: "folder" | "board";
+  id: string;
+  name: string;
+  path: string;
+  matchAt: number;
+  icon: string | null;
+  color: ColorKey | null;
+};
 
 /** Minúsculas e sem acentos: "Reunião" encontra "reuniao". */
 const normalize = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
@@ -64,6 +74,8 @@ export default function SidebarSearch({ folders, boards, onOpenBoard, onRevealFo
         name: item.name,
         path: pathOf(item.folderId),
         matchAt: at,
+        icon: item.icon,
+        color: item.color,
       })),
       ...match(folders).map(({ item, at }) => ({
         kind: "folder" as const,
@@ -71,6 +83,8 @@ export default function SidebarSearch({ folders, boards, onOpenBoard, onRevealFo
         name: item.name,
         path: pathOf(item.parentId),
         matchAt: at,
+        icon: item.icon,
+        color: item.color,
       })),
     ];
   }, [query, folders, boards]);
@@ -152,7 +166,7 @@ export default function SidebarSearch({ folders, boards, onOpenBoard, onRevealFo
                     i === current ? "bg-selected" : ""
                   }`}
                 >
-                  <span className="shrink-0">{r.kind === "board" ? "✏️" : "📁"}</span>
+                  <ItemIcon kind={r.kind} icon={r.icon} color={r.color} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-ink">
                       {r.name.slice(0, r.matchAt)}

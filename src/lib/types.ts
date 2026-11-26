@@ -1,3 +1,4 @@
+import type { ColorKey } from "@/lib/appearance";
 import type { ThemeId } from "@/lib/themes";
 
 export type Folder = {
@@ -6,7 +7,13 @@ export type Folder = {
   /** null = pasta na raiz */
   parentId: string | null;
   position: number;
+  /** Emoji escolhido (null = ícone padrão de pasta) */
+  icon: string | null;
+  color: ColorKey | null;
 };
+
+/** Ícone e cor de uma pasta ou quadro. */
+export type ItemAppearance = { icon: string | null; color: ColorKey | null };
 
 export type UserInfo = {
   id: string;
@@ -24,4 +31,7 @@ export type Board = {
   /** null = quadro solto na raiz */
   folderId: string | null;
   position: number;
+  /** Emoji escolhido (null = ícone padrão de quadro) */
+  icon: string | null;
+  color: ColorKey | null;
 };

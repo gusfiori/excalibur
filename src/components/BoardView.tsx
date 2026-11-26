@@ -3,7 +3,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import type { Scene } from "@/components/Editor";
+import ItemIcon from "@/components/ItemIcon";
 import RenameInput from "@/components/RenameInput";
+import type { ColorKey } from "@/lib/appearance";
 import type { ThemeId } from "@/lib/themes";
 import { getBoardScene, saveBoardScene } from "@/lib/db";
 
@@ -74,13 +76,26 @@ function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void, whe
 type BoardViewProps = {
   boardId: string;
   boardName: string;
+  boardIcon: string | null;
+  boardColor: ColorKey | null;
+  /** Abre o seletor de ícone e cor perto de (x, y). */
+  onEditIcon: (x: number, y: number) => void;
   theme: ThemeId;
   /** Presente quando o quadro acabou de ser criado e ainda está sendo gravado no banco. */
   whenReady?: Promise<void>;
   onRename: (name: string) => void;
 };
 
-export default function BoardView({ boardId, boardName, theme, whenReady, onRename }: BoardViewProps) {
+export default function BoardView({
+  boardId,
+  boardName,
+  boardIcon,
+  boardColor,
+  onEditIcon,
+  theme,
+  whenReady,
+  onRename,
+}: BoardViewProps) {
   const [scene, setScene] = useState<Scene | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -91,11 +106,11 @@ export default function BoardView({ boardId, boardName, theme, whenReady, onRena
 
   // Título da aba do navegador: "Nome do quadro · Excalibur"
   useEffect(() => {
-    document.title = `${boardName} · Excalibur`;
+    document.title = `${boardIcon ? `${boardIcon} ` : ""}${boardName} · Excalibur`;
     return () => {
       document.title = "Excalibur";
     };
-  }, [boardName]);
+  }, [boardName, boardIcon]);
 
   // Carrega o desenho
   useEffect(() => {
@@ -128,26 +143,40 @@ export default function BoardView({ boardId, boardName, theme, whenReady, onRena
   return (
     <>
       <header className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-line px-4">
-        {renaming ? (
-          <RenameInput
-            initial={boardName}
-            onCommit={(name) => {
-              onRename(name);
-              setRenaming(false);
-            }}
-            onCancel={() => setRenaming(false)}
-            className="w-80 max-w-full rounded border border-accent px-1.5 py-0.5 text-sm font-medium text-ink outline-none ring-2 ring-accent-soft"
-          />
-        ) : (
+        <div className="flex min-w-0 items-center gap-1">
           <button
             type="button"
-            title="Clique para renomear"
-            onClick={() => setRenaming(true)}
-            className="truncate rounded px-1.5 py-0.5 font-display text-[15px] font-medium text-ink hover:bg-hover"
+            title="Mudar ícone e cor"
+            aria-label="Mudar ícone e cor do quadro"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              onEditIcon(rect.left, rect.bottom + 4);
+            }}
+            className="shrink-0 rounded p-0.5 hover:bg-hover"
           >
-            {boardName}
+            <ItemIcon kind="board" icon={boardIcon} color={boardColor} size={18} />
           </button>
-        )}
+          {renaming ? (
+            <RenameInput
+              initial={boardName}
+              onCommit={(name) => {
+                onRename(name);
+                setRenaming(false);
+              }}
+              onCancel={() => setRenaming(false)}
+              className="w-80 max-w-full rounded border border-accent px-1.5 py-0.5 text-sm font-medium text-ink outline-none ring-2 ring-accent-soft"
+            />
+          ) : (
+            <button
+              type="button"
+              title="Clique para renomear"
+              onClick={() => setRenaming(true)}
+              className="truncate rounded px-1.5 py-0.5 font-display text-[15px] font-medium text-ink hover:bg-hover"
+            >
+              {boardName}
+            </button>
+          )}
+        </div>
         <span className={`shrink-0 text-xs ${status === "error" ? "text-red-600" : "text-ink-faint"}`}>
           {STATUS_LABEL[status]}
         </span>

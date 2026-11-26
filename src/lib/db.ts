@@ -1,17 +1,38 @@
 import { loadFiles, uploadNewFiles } from "@/lib/files";
 import { createClient } from "@/lib/supabase/client";
 import type { Scene } from "@/components/Editor";
-import type { Board, Folder } from "@/lib/types";
+import { isColorKey } from "@/lib/appearance";
+import type { Board, Folder, ItemAppearance } from "@/lib/types";
 
 // Todas as consultas rodam com a sessão do usuário; o Row Level Security do
 // banco garante que cada pessoa só enxerga e altera os próprios dados.
 const supabase = () => createClient();
 
-type FolderRow = { id: string; name: string; parent_id: string | null; position: number };
-type BoardRow = { id: string; name: string; folder_id: string | null; position: number };
+type AppearanceRow = { icon?: string | null; color?: string | null };
+type FolderRow = { id: string; name: string; parent_id: string | null; position: number } & AppearanceRow;
+type BoardRow = { id: string; name: string; folder_id: string | null; position: number } & AppearanceRow;
 
-const toFolder = (r: FolderRow): Folder => ({ id: r.id, name: r.name, parentId: r.parent_id, position: r.position });
-const toBoard = (r: BoardRow): Board => ({ id: r.id, name: r.name, folderId: r.folder_id, position: r.position });
+const toAppearance = (r: AppearanceRow): ItemAppearance => ({
+  icon: r.icon ?? null,
+  color: isColorKey(r.color) ? r.color : null,
+});
+const toFolder = (r: FolderRow): Folder => ({
+  id: r.id,
+  name: r.name,
+  parentId: r.parent_id,
+  position: r.position,
+  ...toAppearance(r),
+});
+const toBoard = (r: BoardRow): Board => ({
+  id: r.id,
+  name: r.name,
+  folderId: r.folder_id,
+  position: r.position,
+  ...toAppearance(r),
+});
+
+/** Coluna que ainda não existe no banco (script SQL novo não rodado). */
+const isMissingColumn = (e: { code?: string } | null) => e?.code === "42703" || e?.code === "PGRST204";
 
 /** Quando o RLS bloqueia, o Supabase não dá erro: só não altera nenhuma linha. */
 function ensureChanged(data: unknown[] | null) {
@@ -22,13 +43,20 @@ function ensureChanged(data: unknown[] | null) {
 
 export async function listTree(): Promise<{ folders: Folder[]; boards: Board[] }> {
   const db = supabase();
-  const [folders, boards] = await Promise.all([
-    db.from("folders").select("id, name, parent_id, position").order("position").order("created_at"),
-    db.from("boards").select("id, name, folder_id, position").order("position").order("created_at"),
-  ]);
+  const query = (extra: string) =>
+    Promise.all([
+      db.from("folders").select(`id, name, parent_id, position${extra}`).order("position").order("created_at"),
+      db.from("boards").select(`id, name, folder_id, position${extra}`).order("position").order("created_at"),
+    ]);
+  let [folders, boards] = await query(", icon, color");
+  // Sem as colunas de ícone/cor ainda: carrega sem elas para o app continuar funcionando
+  if (isMissingColumn(folders.error) || isMissingColumn(boards.error)) [folders, boards] = await query("");
   if (folders.error) throw folders.error;
   if (boards.error) throw boards.error;
-  return { folders: folders.data.map(toFolder), boards: boards.data.map(toBoard) };
+  return {
+    folders: (folders.data as unknown as FolderRow[]).map(toFolder),
+    boards: (boards.data as unknown as BoardRow[]).map(toBoard),
+  };
 }
 
 // ---------- Pastas ----------
@@ -42,9 +70,11 @@ export async function createFolder(folder: Folder): Promise<void> {
 
 export async function updateFolder(
   id: string,
-  patch: { name?: string; parentId?: string | null; position?: number },
+  patch: { name?: string; parentId?: string | null; position?: number } & Partial<ItemAppearance>,
 ): Promise<void> {
   const row: Record<string, unknown> = {};
+  if (patch.icon !== undefined) row.icon = patch.icon;
+  if (patch.color !== undefined) row.color = patch.color;
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.parentId !== undefined) row.parent_id = patch.parentId;
   if (patch.position !== undefined) row.position = patch.position;
@@ -71,9 +101,11 @@ export async function createBoard(board: Board): Promise<void> {
 
 export async function updateBoard(
   id: string,
-  patch: { name?: string; folderId?: string | null; position?: number },
+  patch: { name?: string; folderId?: string | null; position?: number } & Partial<ItemAppearance>,
 ): Promise<void> {
   const row: Record<string, unknown> = {};
+  if (patch.icon !== undefined) row.icon = patch.icon;
+  if (patch.color !== undefined) row.color = patch.color;
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.folderId !== undefined) row.folder_id = patch.folderId;
   if (patch.position !== undefined) row.position = patch.position;
@@ -101,6 +133,9 @@ export async function duplicateBoard(sourceId: string, copy: Board): Promise<voi
     elements: data.elements,
     app_state: data.app_state,
     files: data.files,
+    // Só envia ícone/cor se tiver (funciona mesmo antes do script 0003)
+    ...(copy.icon ? { icon: copy.icon } : {}),
+    ...(copy.color ? { color: copy.color } : {}),
   });
   if (insertError) throw insertError;
 }
