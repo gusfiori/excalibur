@@ -121,9 +121,9 @@ export default function SidebarSearch({ folders, boards, onOpenBoard, onRevealFo
             }}
             placeholder="Buscar…"
             aria-label="Buscar pastas e quadros"
-            className="w-full rounded-md border border-zinc-200 bg-white py-1.5 pl-2.5 pr-10 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 [&::-webkit-search-cancel-button]:hidden"
+            className="w-full rounded-md border border-line bg-panel py-1.5 pl-2.5 pr-10 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent-soft [&::-webkit-search-cancel-button]:hidden"
           />
-          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-zinc-200 bg-zinc-50 px-1 font-sans text-[10px] text-zinc-400">
+          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-line bg-sidebar px-1 font-sans text-[10px] text-ink-faint">
             {isMac ? "⌘P" : "Ctrl P"}
           </kbd>
         </div>
@@ -134,7 +134,7 @@ export default function SidebarSearch({ folders, boards, onOpenBoard, onRevealFo
       ) : (
         <div className="flex-1 overflow-y-auto px-2 pb-4">
           {results.length === 0 ? (
-            <p className="px-2 py-6 text-center text-xs text-zinc-400">Nada encontrado para “{query.trim()}”.</p>
+            <p className="px-2 py-6 text-center text-xs text-ink-faint">Nada encontrado para “{query.trim()}”.</p>
           ) : (
             <ul ref={listRef} role="listbox" aria-label="Resultados da busca">
               {results.map((r, i) => (
@@ -149,17 +149,17 @@ export default function SidebarSearch({ folders, boards, onOpenBoard, onRevealFo
                     open(r);
                   }}
                   className={`flex cursor-pointer items-start gap-1.5 rounded-md px-2 py-1.5 text-sm ${
-                    i === current ? "bg-zinc-200" : ""
+                    i === current ? "bg-selected" : ""
                   }`}
                 >
                   <span className="shrink-0">{r.kind === "board" ? "✏️" : "📁"}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-zinc-800">
+                    <span className="block truncate text-ink">
                       {r.name.slice(0, r.matchAt)}
-                      <mark className="rounded-sm bg-yellow-200 text-zinc-900">{r.name.slice(r.matchAt, r.matchAt + qLength)}</mark>
+                      <mark className="rounded-sm bg-highlight text-ink">{r.name.slice(r.matchAt, r.matchAt + qLength)}</mark>
                       {r.name.slice(r.matchAt + qLength)}
                     </span>
-                    {r.path && <span className="block truncate text-xs text-zinc-400">{r.path}</span>}
+                    {r.path && <span className="block truncate text-xs text-ink-faint">{r.path}</span>}
                   </span>
                 </li>
               ))}

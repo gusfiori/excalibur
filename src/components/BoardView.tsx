@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import type { Scene } from "@/components/Editor";
 import RenameInput from "@/components/RenameInput";
+import type { ThemeId } from "@/lib/themes";
 import { getBoardScene, saveBoardScene } from "@/lib/db";
 
 // O Excalidraw usa APIs do navegador (window, canvas), então só carrega no cliente.
@@ -26,7 +27,7 @@ const STATUS_LABEL: Record<SaveStatus, string> = {
 };
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="flex h-full items-center justify-center text-sm text-zinc-400">{children}</div>;
+  return <div className="flex h-full items-center justify-center text-sm text-ink-faint">{children}</div>;
 }
 
 /**
@@ -73,12 +74,13 @@ function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void, whe
 type BoardViewProps = {
   boardId: string;
   boardName: string;
+  theme: ThemeId;
   /** Presente quando o quadro acabou de ser criado e ainda está sendo gravado no banco. */
   whenReady?: Promise<void>;
   onRename: (name: string) => void;
 };
 
-export default function BoardView({ boardId, boardName, whenReady, onRename }: BoardViewProps) {
+export default function BoardView({ boardId, boardName, theme, whenReady, onRename }: BoardViewProps) {
   const [scene, setScene] = useState<Scene | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -125,7 +127,7 @@ export default function BoardView({ boardId, boardName, whenReady, onRename }: B
 
   return (
     <>
-      <header className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-zinc-200 px-4">
+      <header className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-line px-4">
         {renaming ? (
           <RenameInput
             initial={boardName}
@@ -134,19 +136,19 @@ export default function BoardView({ boardId, boardName, whenReady, onRename }: B
               setRenaming(false);
             }}
             onCancel={() => setRenaming(false)}
-            className="w-80 max-w-full rounded border border-blue-400 px-1.5 py-0.5 text-sm font-medium text-zinc-900 outline-none ring-2 ring-blue-200"
+            className="w-80 max-w-full rounded border border-accent px-1.5 py-0.5 text-sm font-medium text-ink outline-none ring-2 ring-accent-soft"
           />
         ) : (
           <button
             type="button"
             title="Clique para renomear"
             onClick={() => setRenaming(true)}
-            className="truncate rounded px-1.5 py-0.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+            className="truncate rounded px-1.5 py-0.5 font-display text-[15px] font-medium text-ink hover:bg-hover"
           >
             {boardName}
           </button>
         )}
-        <span className={`shrink-0 text-xs ${status === "error" ? "text-red-600" : "text-zinc-400"}`}>
+        <span className={`shrink-0 text-xs ${status === "error" ? "text-red-600" : "text-ink-faint"}`}>
           {STATUS_LABEL[status]}
         </span>
       </header>
@@ -154,7 +156,7 @@ export default function BoardView({ boardId, boardName, whenReady, onRename }: B
         {loadError ? (
           <Centered>Não foi possível abrir este quadro. Recarregue a página.</Centered>
         ) : scene ? (
-          <Editor initialScene={scene} onChange={saver.schedule} />
+          <Editor initialScene={scene} theme={theme} onChange={saver.schedule} />
         ) : (
           <Centered>Abrindo quadro…</Centered>
         )}

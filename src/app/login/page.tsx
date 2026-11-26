@@ -7,13 +7,13 @@ export const metadata = { title: "Entrar" };
 
 export default function LoginPage({ searchParams }: PageProps<"/login">) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="flex items-center gap-2.5 text-xl font-semibold text-zinc-900">
+    <div data-theme="caderno" className="flex min-h-screen items-center justify-center bg-sidebar px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-8 shadow-sm">
+        <h1 className="flex items-center gap-2.5 font-display text-2xl font-semibold text-ink">
           <Logo size={28} />
           Excalibur
         </h1>
-        <p className="mt-2 mb-6 text-sm text-zinc-500">Seus quadros de desenho, organizados em pastas e subpastas.</p>
+        <p className="mt-2 mb-6 text-sm text-ink-muted">Seus quadros de desenho, organizados em pastas e subpastas.</p>
 
         {!isSupabaseConfigured && (
           <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

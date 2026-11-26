@@ -32,10 +32,11 @@ type SidebarProps = {
   activeBoardId: string | null;
   user: UserInfo;
   actions: SidebarActions;
+  onOpenAppearance: () => void;
 };
 
 type ItemRef = { kind: "folder" | "board"; id: string };
-type MenuState = { x: number; y: number; target: ItemRef | null }; // target null = área vazia
+type MenuState = { x: number; y: number; target: ItemRef | null | "account" }; // null = área vazia
 type DragState = ItemRef & { forbidden: Set<string> }; // pastas onde não pode soltar
 /** into = dentro da pasta; before/after = reordenar antes/depois do item. */
 type DropTarget = { key: string; mode: "into" | "before" | "after" };
@@ -45,9 +46,9 @@ const ROOT = "__root__";
 const byPosition = <T extends { position: number; name: string }>(a: T, b: T) => a.position - b.position || byName(a, b);
 
 const DROP_STYLE: Record<DropTarget["mode"], string> = {
-  into: "bg-blue-100 ring-1 ring-blue-400",
-  before: "shadow-[inset_0_2px_0_0_#3b82f6]",
-  after: "shadow-[inset_0_-2px_0_0_#3b82f6]",
+  into: "bg-accent-soft ring-1 ring-accent",
+  before: "shadow-[inset_0_2px_0_0_var(--accent)]",
+  after: "shadow-[inset_0_-2px_0_0_var(--accent)]",
 };
 
 const expandedKey = (userId: string) => `myexcalidraw:expanded:${userId}`;
@@ -77,14 +78,14 @@ function RowButton({
       aria-label={title}
       onClick={onClick}
       onDoubleClick={(e) => e.stopPropagation()}
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 opacity-0 hover:bg-zinc-300 hover:text-zinc-900 focus:opacity-100 group-hover:opacity-100"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted opacity-0 hover:bg-selected hover:text-ink focus:opacity-100 group-hover:opacity-100"
     >
       {children}
     </button>
   );
 }
 
-export default function Sidebar({ folders, boards, activeBoardId, user, actions }: SidebarProps) {
+export default function Sidebar({ folders, boards, activeBoardId, user, actions, onOpenAppearance }: SidebarProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const active = boards.find((b) => b.id === activeBoardId);
     return new Set([...readExpanded(user.id), ...ancestorFolderIds(folders, active?.folderId ?? null)]);
@@ -157,7 +158,20 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
     }
   };
 
-  const menuItems = (target: ItemRef | null): MenuItem[] => {
+  const menuItems = (target: MenuState["target"]): MenuItem[] => {
+    if (target === "account") {
+      return [
+        { label: "Aparência", onSelect: onOpenAppearance },
+        {
+          label: "Sair",
+          onSelect: () => {
+            // Recarrega a página inteira de propósito: limpa da memória tudo da conta que saiu
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+            fetch("/auth/signout", { method: "POST" }).finally(() => window.location.assign("/login"));
+          },
+        },
+      ];
+    }
     if (!target) {
       return [
         { label: "Nova pasta", onSelect: () => newFolder(null) },
@@ -304,7 +318,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
   // ---------- Renderização ----------
 
   const rowBase =
-    "group flex w-full cursor-pointer select-none items-center gap-1.5 rounded-md py-1 pr-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-300";
+    "group flex w-full cursor-pointer select-none items-center gap-1.5 rounded-md py-1 pr-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
   const renderLevel = (parentId: string | null, depth: number): React.ReactNode => {
     const childFolders = folders.filter((f) => f.parentId === parentId).sort(byPosition);
@@ -338,12 +352,12 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
                   if (e.key === "Enter") setOpen(folder.id, !open);
                   if (e.key === "F2") setEditing(ref);
                 }}
-                className={`${rowBase} text-zinc-700 ${
-                  dropMode ? DROP_STYLE[dropMode] : "hover:bg-zinc-200/70"
+                className={`${rowBase} text-ink-soft ${
+                  dropMode ? DROP_STYLE[dropMode] : "hover:bg-hover"
                 } ${dragging?.id === folder.id ? "opacity-50" : ""}`}
                 style={indent}
               >
-                <span className="w-3 shrink-0 text-[10px] text-zinc-400">{open ? "▼" : "▶"}</span>
+                <span className="w-3 shrink-0 text-[10px] text-ink-faint">{open ? "▼" : "▶"}</span>
                 <span className="shrink-0">{open ? "📂" : "📁"}</span>
                 {isEditing ? (
                   <RenameInput
@@ -402,7 +416,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
                 if (e.key === "F2") setEditing(ref);
               }}
               className={`${rowBase} ${
-                isActive ? "bg-zinc-200 font-medium text-zinc-900" : "text-zinc-700 hover:bg-zinc-200/70"
+                isActive ? "bg-selected font-medium text-ink" : "text-ink-soft hover:bg-hover"
               } ${dropMode ? DROP_STYLE[dropMode] : ""} ${dragging?.id === board.id ? "opacity-50" : ""}`}
               style={indent}
             >
@@ -435,18 +449,18 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
   const isEmpty = folders.length === 0 && boards.length === 0;
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
+    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-sidebar">
       <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-        <span className="flex items-center gap-2 pl-1 text-sm font-semibold text-zinc-900">
+        <span className="flex items-center gap-2 pl-1 font-display text-base font-semibold text-ink">
           <Logo />
           Excalibur
         </span>
-        <div className="flex gap-1">
+        <div className="flex shrink-0 gap-0.5">
           <button
             type="button"
             onClick={() => newFolder(null)}
             title="Nova pasta"
-            className="rounded-md px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900"
+            className="whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs text-ink-muted hover:bg-hover hover:text-ink"
           >
             + Pasta
           </button>
@@ -454,7 +468,7 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
             type="button"
             onClick={() => newBoard(null)}
             title="Novo quadro"
-            className="rounded-md px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900"
+            className="whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs text-ink-muted hover:bg-hover hover:text-ink"
           >
             + Quadro
           </button>
@@ -470,11 +484,11 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
           onDrop={drop}
           onContextMenu={(e) => openMenuAt(e, null)}
           className={`flex-1 overflow-y-auto px-2 pb-4 transition-colors ${
-            dropTarget?.key === ROOT ? "bg-blue-50 outline-2 -outline-offset-4 outline-dashed outline-blue-300" : ""
+            dropTarget?.key === ROOT ? "bg-accent-soft outline-2 -outline-offset-4 outline-dashed outline-accent" : ""
           }`}
         >
           {isEmpty ? (
-            <p className="px-2 py-6 text-center text-xs leading-relaxed text-zinc-400">
+            <p className="px-2 py-6 text-center text-xs leading-relaxed text-ink-faint">
               Nada por aqui ainda.
               <br />
               Crie uma pasta ou um quadro acima.
@@ -485,24 +499,32 @@ export default function Sidebar({ folders, boards, activeBoardId, user, actions 
         </nav>
       </SidebarSearch>
 
-      <div className="flex items-center gap-2 border-t border-zinc-200 px-3 py-2.5">
-        {user.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-7 w-7 shrink-0 rounded-full" />
-        ) : (
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-xs font-semibold text-zinc-700">
-            {user.name.charAt(0).toUpperCase()}
+      <div className="border-t border-line p-1.5">
+        <button
+          type="button"
+          title="Conta e aparência"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: rect.left + 8, y: rect.top - 8 - 2 * 34, target: "account" });
+          }}
+          className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-hover"
+        >
+          {user.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-7 w-7 shrink-0 rounded-full" />
+          ) : (
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-selected text-xs font-semibold text-ink-soft">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-ink">{user.name}</div>
+            <div className="truncate text-xs text-ink-muted">{user.email}</div>
           </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-zinc-800">{user.name}</div>
-          <div className="truncate text-xs text-zinc-500">{user.email}</div>
-        </div>
-        <form action="/auth/signout" method="post">
-          <button type="submit" className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800">
-            Sair
-          </button>
-        </form>
+          <span className="shrink-0 text-ink-faint" aria-hidden="true">
+            ⋯
+          </span>
+        </button>
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.target)} onClose={closeMenu} />}

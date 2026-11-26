@@ -1,3 +1,5 @@
+import type { ThemeId } from "@/lib/themes";
+
 export type Folder = {
   id: string;
   name: string;
@@ -8,6 +10,8 @@ export type Folder = {
 
 export type UserInfo = {
   id: string;
+  /** null = ainda não escolheu (primeiro acesso) */
+  theme: ThemeId | null;
   name: string;
   email: string;
   avatarUrl: string | null;

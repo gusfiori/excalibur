@@ -1,19 +1,171 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Temas do Excalibur: cada [data-theme] define os mesmos tokens de cor.
+ * Os componentes usam só as classes geradas a partir deles (bg-sidebar,
+ * text-ink, border-line...), então trocar o tema troca tudo de uma vez.
+ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-app: var(--app-bg);
+  --color-sidebar: var(--sidebar-bg);
+  --color-panel: var(--panel-bg);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-hover: var(--hover-bg);
+  --color-selected: var(--selected-bg);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-highlight: var(--highlight);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--display-font);
+}
+
+/* ---------- Caderno (padrão) ---------- */
+:root,
+[data-theme="caderno"] {
+  --app-bg: #fbf7ee;
+  --sidebar-bg: #f3ebda;
+  --panel-bg: #fffdf8;
+  --ink: #3b2a1e;
+  --ink-soft: #5c4636;
+  --ink-muted: #8a7462;
+  --ink-faint: #b3a08c;
+  --line: #e3d6bf;
+  --hover-bg: #eadfc8;
+  --selected-bg: #e2d2b3;
+  --accent: #c2562f;
+  --accent-soft: #f5d9cb;
+  --on-accent: #ffffff;
+  --highlight: #f9d77e;
+  --display-font: var(--font-fraunces), Georgia, serif;
+  /* fundo do quadro: pontilhado */
+  --canvas-bg: #fbf7ee;
+  --canvas-pattern: radial-gradient(circle, #d6c6a8 calc(1.1px * var(--grid-zoom, 1)), transparent 0);
+  color-scheme: light;
+}
+
+/* ---------- Estúdio ---------- */
+[data-theme="estudio"] {
+  --app-bg: #17161c;
+  --sidebar-bg: #1f1e26;
+  --panel-bg: #2a2932;
+  --ink: #edecf5;
+  --ink-soft: #c9c7d6;
+  --ink-muted: #8e8b9e;
+  --ink-faint: #66637a;
+  --line: #2f2e38;
+  --hover-bg: #2a2934;
+  --selected-bg: #36344a;
+  --accent: #8b83f0;
+  --accent-soft: #2f2b5a;
+  --on-accent: #ffffff;
+  --highlight: #4b3f8a;
+  --display-font: var(--font-geist-sans), system-ui, sans-serif;
+  /* fundo do quadro: quadriculado fino */
+  --canvas-bg: #17161c;
+  --canvas-pattern: linear-gradient(#24232c 1px, transparent 1px), linear-gradient(90deg, #24232c 1px, transparent 1px);
+  color-scheme: dark;
+}
+
+/* ---------- Organizado ---------- */
+[data-theme="organizado"] {
+  --app-bg: #ffffff;
+  --sidebar-bg: #f7f7f5;
+  --panel-bg: #ffffff;
+  --ink: #26251f;
+  --ink-soft: #44433e;
+  --ink-muted: #73726c;
+  --ink-faint: #a3a29b;
+  --line: #e6e5e0;
+  --hover-bg: #ededea;
+  --selected-bg: #e3f3ec;
+  --accent: #1d9e75;
+  --accent-soft: #d5f0e5;
+  --on-accent: #ffffff;
+  --highlight: #fce9a8;
+  --display-font: var(--font-geist-sans), system-ui, sans-serif;
+  /* fundo do quadro: liso */
+  --canvas-bg: #ffffff;
+  --canvas-pattern: none;
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--app-bg);
+  color: var(--ink);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/*
+ * Fundo do quadro: o canvas do Excalidraw fica transparente e o padrão
+ * (pontos/grade) é desenhado aqui. --grid-size/x/y acompanham zoom e rolagem.
+ */
+.board-canvas {
+  background-color: var(--canvas-bg);
+  background-image: var(--canvas-pattern);
+  background-size: var(--grid-size, 20px) var(--grid-size, 20px);
+  background-position: var(--grid-x, 0) var(--grid-y, 0);
+}
+
+/* ---------- Editor (Excalidraw) com as cores de cada tema ---------- */
+[data-theme="caderno"] .excalidraw {
+  --color-primary: #c2562f;
+  --color-primary-darker: #a8471f;
+  --color-primary-darkest: #8a3a19;
+  --color-primary-hover: #a8471f;
+  --color-primary-light: #f5d9cb;
+  --color-primary-light-darker: #efc8b5;
+  --color-brand-hover: #a8471f;
+  --color-brand-active: #8a3a19;
+  --color-selection: #c2562f;
+  --color-surface-high: #f3e6d8;
+  --color-surface-mid: #f5efe3;
+  --color-surface-low: #f1e9da;
+  --color-surface-primary-container: #f5d9cb;
+  --color-on-surface: #3b2a1e;
+  --island-bg-color: #fffdf8;
+  --default-bg-color: #fbf7ee;
+  --input-bg-color: #fffdf8;
+}
+
+[data-theme="estudio"] .excalidraw.theme--dark {
+  --color-primary: #a39cf5;
+  --color-primary-darker: #b3adf7;
+  --color-primary-darkest: #c4bff9;
+  --color-primary-hover: #b3adf7;
+  --color-primary-light: #3a3670;
+  --color-primary-light-darker: #45407f;
+  --color-brand-hover: #b3adf7;
+  --color-brand-active: #c4bff9;
+  --color-selection: #7f77dd;
+  --color-surface-high: #2e2d38;
+  --color-surface-mid: #1b1a21;
+  --color-surface-low: #26252e;
+  --color-surface-primary-container: #3a3670;
+  --island-bg-color: #22212a;
+  --default-bg-color: #17161c;
+  --input-bg-color: #17161c;
+}
+
+[data-theme="organizado"] .excalidraw {
+  --color-primary: #1d9e75;
+  --color-primary-darker: #178563;
+  --color-primary-darkest: #116b50;
+  --color-primary-hover: #178563;
+  --color-primary-light: #d5f0e5;
+  --color-primary-light-darker: #bfe8d7;
+  --color-brand-hover: #178563;
+  --color-brand-active: #116b50;
+  --color-selection: #1d9e75;
+  --color-surface-high: #e8f5ef;
+  --color-surface-mid: #f5f5f3;
+  --color-surface-low: #f0f0ee;
+  --color-surface-primary-container: #d5f0e5;
+  --island-bg-color: #ffffff;
 }

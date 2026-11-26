@@ -40,7 +40,7 @@ export default function RenameInput({ initial, onCommit, onCancel, className }: 
       onDoubleClick={(e) => e.stopPropagation()}
       className={
         className ??
-        "min-w-0 flex-1 rounded border border-blue-400 bg-white px-1 py-0 text-sm text-zinc-900 outline-none ring-2 ring-blue-200"
+        "min-w-0 flex-1 rounded border border-accent bg-panel px-1 py-0 text-sm text-ink outline-none ring-2 ring-accent-soft"
       }
     />
   );

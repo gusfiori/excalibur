@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import BoardView from "@/components/BoardView";
 import Sidebar, { type SidebarActions } from "@/components/Sidebar";
+import { ThemeDialog } from "@/components/ThemePicker";
 import * as db from "@/lib/db";
+import { saveTheme } from "@/lib/preferences";
+import { DEFAULT_THEME, type ThemeId } from "@/lib/themes";
 import { descendantFolderIds, uniqueName } from "@/lib/tree";
 import type { Board, Folder, UserInfo } from "@/lib/types";
 
@@ -36,6 +39,10 @@ export default function Workspace({ user }: { user: UserInfo }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  // Tema: o salvo na conta, ou o padrão (Caderno) enquanto a pessoa escolhe no primeiro acesso
+  const [theme, setTheme] = useState<ThemeId>(user.theme ?? DEFAULT_THEME);
+  const [savedTheme, setSavedTheme] = useState<ThemeId | null>(user.theme);
+  const [themeDialog, setThemeDialog] = useState<"first" | "appearance" | null>(user.theme ? null : "first");
   // Quadros recém-criados: o editor espera a gravação no banco terminar antes de carregar/salvar.
   const [creating] = useState(() => new Map<string, Promise<void>>());
   const started = useRef(false);
@@ -100,11 +107,31 @@ export default function Workspace({ user }: { user: UserInfo }) {
     [],
   );
 
+  /** Fecha o seletor e grava o tema na conta (se mudou ou se é o primeiro acesso). */
+  const finishThemeChoice = () => {
+    setThemeDialog(null);
+    if (theme === savedTheme) return;
+    const chosen = theme;
+    saveTheme(chosen)
+      .then(() => setSavedTheme(chosen))
+      .catch((e) => {
+        console.error(e);
+        setNotice("Não foi possível salvar o tema na sua conta. Tente de novo em Aparência.");
+      });
+  };
+
+  // Telas de carregamento/erro já com as cores do tema
+  const shell = (content: React.ReactNode) => (
+    <div data-theme={theme} className="flex h-screen items-center justify-center bg-app px-6 text-center text-sm">
+      {content}
+    </div>
+  );
+
   if (loadError) {
-    return <div className="flex h-screen items-center justify-center px-6 text-center text-sm text-red-600">{loadError}</div>;
+    return shell(<span className="text-red-600">{loadError}</span>);
   }
   if (!tree) {
-    return <div className="flex h-screen items-center justify-center text-sm text-zinc-400">Carregando seus quadros…</div>;
+    return shell(<span className="text-ink-faint">Carregando seus quadros…</span>);
   }
 
   const actions: SidebarActions = {
@@ -234,8 +261,15 @@ export default function Workspace({ user }: { user: UserInfo }) {
   const activeBoard = tree.boards.find((b) => b.id === activeBoardId);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
-      <Sidebar folders={tree.folders} boards={tree.boards} activeBoardId={activeBoardId} user={user} actions={actions} />
+    <div data-theme={theme} className="flex h-screen w-screen overflow-hidden bg-app text-ink">
+      <Sidebar
+        folders={tree.folders}
+        boards={tree.boards}
+        activeBoardId={activeBoardId}
+        user={user}
+        actions={actions}
+        onOpenAppearance={() => setThemeDialog("appearance")}
+      />
       <main className="flex min-w-0 flex-1 flex-col">
         {activeBoard ? (
           // key: cada quadro tem seu próprio editor e sua própria fila de salvamento
@@ -243,16 +277,17 @@ export default function Workspace({ user }: { user: UserInfo }) {
             key={activeBoard.id}
             boardId={activeBoard.id}
             boardName={activeBoard.name}
+            theme={theme}
             whenReady={creating.get(activeBoard.id)}
             onRename={(name) => actions.renameBoard(activeBoard.id, name)}
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <p className="text-sm text-zinc-500">Nenhum quadro aberto.</p>
+            <p className="text-sm text-ink-muted">Nenhum quadro aberto.</p>
             <button
               type="button"
               onClick={() => actions.createBoard(null)}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:opacity-90"
             >
               Criar quadro
             </button>
@@ -260,10 +295,26 @@ export default function Workspace({ user }: { user: UserInfo }) {
         )}
       </main>
 
+      {themeDialog && (
+        <ThemeDialog
+          title={themeDialog === "first" ? "Escolha seu estilo" : "Aparência"}
+          subtitle={
+            themeDialog === "first"
+              ? "Dá para trocar quando quiser, clicando no seu nome no canto da tela."
+              : "O estilo vale para todos os seus quadros, em qualquer computador."
+          }
+          actionLabel={themeDialog === "first" ? "Continuar" : "Pronto"}
+          value={theme}
+          onChange={setTheme}
+          onDone={finishThemeChoice}
+          dismissible={themeDialog === "appearance"}
+        />
+      )}
+
       {notice && (
         <div
           role="status"
-          className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg"
+          className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-accent px-4 py-2 text-sm text-on-accent shadow-lg"
         >
           {notice}
         </div>

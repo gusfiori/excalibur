@@ -42,7 +42,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
+      className="fixed z-50 rounded-lg border border-line bg-panel py-1 shadow-lg"
       style={{ left: Math.max(8, left), top: Math.max(8, top), width: WIDTH }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -54,8 +54,8 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
             onClose();
             item.onSelect();
           }}
-          className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 ${
-            item.danger ? "text-red-600" : "text-zinc-800"
+          className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-hover ${
+            item.danger ? "text-red-600" : "text-ink"
           }`}
         >
           {item.label}
