@@ -23,6 +23,8 @@ type EditorProps = {
   onChange: (scene: Scene) => void;
   /** Recebe o controle do editor quando ele fica pronto (para inserir modelos etc.). */
   onApi?: (api: ExcalidrawImperativeAPI) => void;
+  /** Enquadra todo o desenho na tela ao abrir (usado na página inicial). */
+  fitOnLoad?: boolean;
 };
 
 /** Estilo padrão dos próximos elementos, conforme o tema. */
@@ -39,7 +41,7 @@ function drawingDefaults(theme: ThemeId) {
 
 const GRID = 20; // distância base entre os pontos/linhas do fundo, em pixels
 
-export default function Editor({ initialScene, theme, onChange, onApi }: EditorProps) {
+export default function Editor({ initialScene, theme, onChange, onApi, fitOnLoad }: EditorProps) {
   // "Assinatura" do último estado visto, para ignorar eventos que não mudam nada
   // (seleção, rolagem, zoom...).
   const lastKey = useRef<string | null>(null);
@@ -60,12 +62,23 @@ export default function Editor({ initialScene, theme, onChange, onApi }: EditorP
     el.style.setProperty("--grid-zoom", `${Math.min(Math.max(zoom, 0.6), 2)}`);
   };
 
+  // Avisa quem usa o editor que ele está pronto (depois de montado, não antes)
+  useEffect(() => {
+    if (api) onApi?.(api);
+    // só uma vez por editor
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api]);
+
   // Posição inicial do fundo, assim que o editor fica pronto
   useEffect(() => {
     if (!api) return;
     const s = api.getAppState();
     syncBackground(s.scrollX, s.scrollY, s.zoom.value);
-  }, [api]);
+    if (!fitOnLoad) return;
+    // Espera o editor medir o próprio tamanho antes de enquadrar
+    const timer = setTimeout(() => api.scrollToContent(undefined, { fitToContent: true, viewportZoomFactor: 0.85 }), 350);
+    return () => clearTimeout(timer);
+  }, [api, fitOnLoad]);
 
   // Trocou de tema com o quadro aberto: aplica o novo estilo padrão na hora
   useEffect(() => {
@@ -75,10 +88,7 @@ export default function Editor({ initialScene, theme, onChange, onApi }: EditorP
   return (
     <div ref={canvasRef} className="board-canvas absolute inset-0">
       <Excalidraw
-        excalidrawAPI={(instance) => {
-          setApi(instance);
-          onApi?.(instance);
-        }}
+        excalidrawAPI={setApi}
         langCode="pt-BR"
         theme={THEMES[theme].editorMode}
         UIOptions={{ canvasActions: { changeViewBackgroundColor: false, toggleTheme: false } }}

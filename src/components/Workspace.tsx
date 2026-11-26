@@ -7,6 +7,7 @@ import { favoriteBoards, FolderGallery, HomeGallery, recentBoards, type GalleryA
 import Sidebar, { type SidebarActions } from "@/components/Sidebar";
 import { ThemeDialog } from "@/components/ThemePicker";
 import * as db from "@/lib/db";
+import { clearDraft, readDraft } from "@/lib/draft";
 import { saveTheme } from "@/lib/preferences";
 import { DEFAULT_THEME, type ThemeId } from "@/lib/themes";
 import { descendantFolderIds, uniqueName } from "@/lib/tree";
@@ -89,7 +90,37 @@ export default function Workspace({ user }: { user: UserInfo }) {
     started.current = true;
 
     db.listTree()
-      .then((data) => {
+      .then(async (data) => {
+        // Rabisco feito na página inicial antes de entrar: vira o primeiro quadro da conta
+        const draft = readDraft();
+        if (draft) {
+          const rootBoards = data.boards.filter((b) => b.folderId === null);
+          const board: Board = {
+            id: crypto.randomUUID(),
+            name: uniqueName("Meu primeiro desenho", rootBoards),
+            folderId: null,
+            position: nextPosition(rootBoards),
+            icon: null,
+            color: null,
+            updatedAt: new Date().toISOString(),
+            favorite: false,
+            openedAt: null,
+          };
+          try {
+            await db.createBoard(board);
+            await db.saveBoardScene(board.id, draft);
+            clearDraft();
+            setTree({ ...data, boards: [...data.boards, board] });
+            setView({ kind: "board", id: board.id });
+            writeLastView(user.id, { kind: "board", id: board.id });
+            markOpened(board.id);
+            setNotice(`Seu rabisco da página inicial virou o quadro “${board.name}”.`);
+            return;
+          } catch (e) {
+            console.warn("Não foi possível guardar o rabisco da página inicial", e);
+          }
+        }
+
         setTree(data);
         const last = readLastView(user.id);
         const start = isValidView(last, data) ? last : { kind: "home" as const };

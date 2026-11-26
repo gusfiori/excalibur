@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import Logo from "@/components/Logo";
-import GoogleButton from "./GoogleButton";
+import GoogleButton from "@/components/GoogleButton";
 
 export const metadata = { title: "Entrar" };
 

@@ -277,6 +277,37 @@ export async function buildTemplate(id: TemplateId, theme: ThemeId) {
   return convertToExcalidrawElements(template.build(THEMES[theme].drawing), { regenerateIds: true });
 }
 
+// ---------- Desenho de boas-vindas (página inicial) ----------
+
+function welcome(s: Style): Skeleton[] {
+  const ideia: BoxOpts = { id: "ideia", x: 0, y: 90, w: 170, h: 80, text: "Uma ideia", fill: FILL.yellow };
+  const plano: BoxOpts = { id: "plano", x: 260, y: 70, w: 190, h: 120, text: "Um plano", fill: FILL.blue, shape: "ellipse" };
+  const feito: BoxOpts = { id: "feito", x: 540, y: 90, w: 150, h: 80, text: "Feito!", fill: FILL.green };
+  return [
+    text(s, 0, 0, "Oi! Rabisque à vontade ✏️", 32),
+    box(s, ideia),
+    box(s, plano),
+    box(s, feito),
+    connect(s, ideia, plano),
+    connect(s, plano, feito),
+    box(s, {
+      x: 120,
+      y: 250,
+      w: 450,
+      h: 90,
+      text: "Nada se perde: entre com Google\ne isto vira seu primeiro quadro",
+      fill: FILL.pink,
+      fontSize: 18,
+    }),
+  ];
+}
+
+/** Quadro de exemplo da página inicial, no estilo do tema. Só roda no navegador. */
+export async function buildWelcome(theme: ThemeId) {
+  const { convertToExcalidrawElements } = await import("@excalidraw/excalidraw");
+  return convertToExcalidrawElements(welcome(THEMES[theme].drawing), { regenerateIds: true });
+}
+
 // ---------- Biblioteca de elementos (painel "Biblioteca" do editor) ----------
 
 function libraryItems(s: Style): { name: string; skeleton: Skeleton[] }[] {

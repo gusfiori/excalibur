@@ -2,10 +2,11 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured, SUPABASE_KEY, SUPABASE_URL } from "./config";
 
+// "/" é a página inicial pública; o app fica em /app
 const PUBLIC_PATHS = ["/login", "/auth"];
 
 function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return pathname === "/" || PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 function redirectToLogin(request: NextRequest) {
@@ -51,7 +52,7 @@ export async function updateSession(request: NextRequest) {
 
   if (loggedIn && pathname === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/app";
     url.search = "";
     return NextResponse.redirect(url);
   }
