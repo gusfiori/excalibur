@@ -1,0 +1,125 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
+import type { Scene } from "@/components/Editor";
+import { getBoardScene, saveBoardScene } from "@/lib/db";
+
+// O Excalidraw usa APIs do navegador (window, canvas), então só carrega no cliente.
+const Editor = dynamic(() => import("@/components/Editor"), {
+  ssr: false,
+  loading: () => <Centered>Carregando editor…</Centered>,
+});
+
+const SAVE_DELAY_MS = 1000;
+const RETRY_DELAY_MS = 3000;
+
+type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
+
+const STATUS_LABEL: Record<SaveStatus, string> = {
+  idle: "",
+  pending: "Alterações não salvas",
+  saving: "Salvando…",
+  saved: "Salvo ✓",
+  error: "Erro ao salvar — tentando de novo…",
+};
+
+function Centered({ children }: { children: React.ReactNode }) {
+  return <div className="flex h-full items-center justify-center text-sm text-zinc-400">{children}</div>;
+}
+
+/**
+ * Fila de salvamento de um quadro: espera o usuário parar de desenhar,
+ * grava uma vez por vez e tenta de novo se a gravação falhar.
+ */
+function createAutosaver(boardId: string, onStatus: (s: SaveStatus) => void) {
+  let pending: Scene | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let chain: Promise<void> = Promise.resolve();
+
+  function flush() {
+    clearTimeout(timer);
+    const toSave = pending;
+    if (!toSave) return;
+    pending = null;
+    onStatus("saving");
+    chain = chain
+      .then(() => saveBoardScene(boardId, toSave))
+      .then(() => {
+        if (!pending) onStatus("saved");
+      })
+      .catch(() => {
+        // Não perde a alteração: se nada mais novo chegou, tenta de novo daqui a pouco.
+        if (!pending) pending = toSave;
+        onStatus("error");
+        clearTimeout(timer);
+        timer = setTimeout(flush, RETRY_DELAY_MS);
+      });
+  }
+
+  function schedule(scene: Scene) {
+    pending = scene;
+    onStatus("pending");
+    clearTimeout(timer);
+    timer = setTimeout(flush, SAVE_DELAY_MS);
+  }
+
+  return { schedule, flush, hasPending: () => pending !== null };
+}
+
+/** Um quadro aberto: carrega o desenho do banco e salva sozinho a cada alteração. */
+export default function BoardView({ boardId, boardName }: { boardId: string; boardName: string }) {
+  const [scene, setScene] = useState<Scene | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [status, setStatus] = useState<SaveStatus>("idle");
+
+  // BoardView é recriado a cada troca de quadro (key), então o boardId não muda aqui.
+  const [saver] = useState(() => createAutosaver(boardId, setStatus));
+
+  // Carrega o desenho
+  useEffect(() => {
+    let cancelled = false;
+    getBoardScene(boardId)
+      .then((s) => !cancelled && setScene(s))
+      .catch(() => !cancelled && setLoadError(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [boardId]);
+
+  // Ao trocar de quadro (desmontar), salva o que faltava.
+  // Ao fechar/recarregar a aba com algo pendente, salva e pede confirmação.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (saver.hasPending()) {
+        saver.flush();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      saver.flush();
+    };
+  }, [saver]);
+
+  return (
+    <>
+      <header className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-zinc-200 px-4">
+        <span className="truncate text-sm font-medium text-zinc-800">{boardName}</span>
+        <span className={`shrink-0 text-xs ${status === "error" ? "text-red-600" : "text-zinc-400"}`}>
+          {STATUS_LABEL[status]}
+        </span>
+      </header>
+      <div className="relative min-h-0 flex-1">
+        {loadError ? (
+          <Centered>Não foi possível abrir este quadro. Recarregue a página.</Centered>
+        ) : scene ? (
+          <Editor initialScene={scene} onChange={saver.schedule} />
+        ) : (
+          <Centered>Abrindo quadro…</Centered>
+        )}
+      </div>
+    </>
+  );
+}
